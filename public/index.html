@@ -1,0 +1,210 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DevFlow | CI Pipeline Simulator</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="script.js" defer></script>
+</head>
+<body>
+    <header class="topbar">
+        <a class="brand" href="/">DevFlow<span>.</span></a>
+        <span class="status">
+            <span class="status-dot"></span>
+            Pipeline Simulator
+        </span>
+    </header>
+
+    <main class="container">
+        <section class="hero">
+            <p class="eyebrow">CI/CD SCHEDULING LAB</p>
+            <h1>Build smarter.<br><span>Ship faster.</span></h1>
+            <p class="subtitle">
+                Simulate CI pipelines, compare scheduling strategies,
+                and understand where execution time goes.
+            </p>
+        </section>
+
+        <!-- Pipeline configuration -->
+        <section class="panel">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">CONFIGURATION</p>
+                    <h2>Pipeline setup</h2>
+                </div>
+                <span class="step-label">01 / SETUP</span>
+            </div>
+
+            <label for="workerCount">Number of workers</label>
+            <input
+                id="workerCount"
+                type="number"
+                min="1"
+                step="1"
+                value="2"
+            >
+
+            <label for="policy">Scheduling policy</label>
+            <select id="policy">
+                <option value="FIFO">FIFO — First In, First Out</option>
+                <option value="SJF">SJF — Shortest Job First</option>
+                <option value="CRITICAL_PATH">Critical Path First</option>
+            </select>
+
+            <div class="section-heading jobs-heading">
+                <div>
+                    <p class="eyebrow">DEPENDENCY GRAPH INPUT</p>
+                    <h2>Pipeline jobs</h2>
+                </div>
+
+                <button
+                    id="addJob"
+                    class="secondary-button"
+                    type="button"
+                >
+                    + Add job
+                </button>
+            </div>
+
+            <p class="helper">
+                Enter a unique job ID, duration, and dependency IDs
+                separated by commas. Leave dependencies empty for jobs
+                that can start immediately.
+            </p>
+
+            <div id="jobsList" class="jobs-list"></div>
+
+            <div class="actions">
+                <button
+                    id="runSimulation"
+                    class="primary-button"
+                    type="button"
+                >
+                    Run simulation →
+                </button>
+
+                <button
+                    id="loadSample"
+                    class="secondary-button"
+                    type="button"
+                >
+                    Reset sample
+                </button>
+            </div>
+
+            <p id="message" class="message" role="status"></p>
+        </section>
+
+        <!-- Individual simulation results -->
+        <section id="results" class="panel results-panel" hidden>
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">SIMULATION OUTPUT</p>
+                    <h2>Execution results</h2>
+                </div>
+                <span class="step-label">02 / RESULTS</span>
+            </div>
+
+            <div class="metrics">
+                <article class="metric">
+                    <p>Makespan</p>
+                    <strong id="makespan">—</strong>
+                    <span>Time units</span>
+                </article>
+
+                <article class="metric">
+                    <p>Worker utilization</p>
+                    <strong id="utilization">—</strong>
+                    <span>Capacity used</span>
+                </article>
+
+                <article class="metric">
+                    <p>Total queue waiting</p>
+                    <strong id="waiting">—</strong>
+                    <span>Time units</span>
+                </article>
+
+                <article class="metric">
+                    <p>Average queue waiting</p>
+                    <strong id="averageWaiting">—</strong>
+                    <span>Per job</span>
+                </article>
+            </div>
+
+            <h3>Pipeline timeline</h3>
+            <p class="helper">
+                Each bar shows when a job starts and finishes during
+                the simulation.
+            </p>
+
+            <div id="timeline" class="timeline">
+                <p class="helper">
+                    Run a simulation to view the timeline.
+                </p>
+            </div>
+
+            <h3>Execution schedule</h3>
+            <div id="schedule" class="schedule-list"></div>
+
+            <!-- Scheduling policy comparison -->
+            <div class="comparison-heading">
+                <div>
+                    <p class="eyebrow">POLICY ANALYSIS</p>
+                    <h3>Compare scheduling policies</h3>
+                    <p class="helper">
+                        Compare all three policies using the same jobs
+                        and worker count.
+                    </p>
+                </div>
+
+                <button
+                    id="comparePolicies"
+                    class="secondary-button"
+                    type="button"
+                >
+                    Compare policies →
+                </button>
+            </div>
+
+            <p
+                id="comparisonMessage"
+                class="message"
+                role="status"
+            ></p>
+
+            <div id="comparisonResults" hidden>
+                <div class="comparison-summary">
+                    <p class="eyebrow">LOWEST MAKESPAN</p>
+                    <h3 id="bestPolicy">—</h3>
+                    <p
+                        id="bestPolicyDescription"
+                        class="helper"
+                    ></p>
+                </div>
+
+                <div class="table-wrapper">
+                    <table class="comparison-table">
+                        <thead>
+                            <tr>
+                                <th>Policy</th>
+                                <th>Makespan</th>
+                                <th>Utilization</th>
+                                <th>Total waiting</th>
+                                <th>Avg. waiting</th>
+                            </tr>
+                        </thead>
+
+                        <tbody id="comparisonTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        DevFlow · CI Pipeline Scheduling &amp; Optimization Simulator
+    </footer>
+</body>
+</html>
