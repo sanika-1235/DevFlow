@@ -44,7 +44,6 @@ function Timeline({ schedule, workerCount, makespan }) {
         }}
       >
         <div style={{ minWidth: `${timelineWidth + 125}px` }}>
-          {/* Time scale */}
           <div
             style={{
               display: 'flex',
@@ -72,7 +71,6 @@ function Timeline({ schedule, workerCount, makespan }) {
             )}
           </div>
 
-          {/* Worker lanes */}
           {workers.map((workerId) => {
             const workerJobs = schedule.filter(
               (job) => Number(job.workerId) === workerId
@@ -611,7 +609,38 @@ function App() {
 
                   <tbody>
                     {history.map((item) => {
-                      const metrics = item.result || item;
+                      const storedResult = item.result || item;
+
+                      const comparisons = Array.isArray(
+                        storedResult.comparisons
+                      )
+                        ? storedResult.comparisons
+                        : [];
+
+                      const isComparison =
+                        item.policy === 'COMPARISON' ||
+                        comparisons.length > 0;
+
+                      const bestComparison = comparisons.reduce(
+                        (best, current) => {
+                          if (!best) return current;
+
+                          return Number(current.makespan) <
+                            Number(best.makespan)
+                            ? current
+                            : best;
+                        },
+                        null
+                      );
+
+                      const metrics = isComparison
+                        ? bestComparison || {}
+                        : storedResult;
+
+                      const makespan = isComparison
+                        ? storedResult.bestMakespan ??
+                          bestComparison?.makespan
+                        : metrics.makespan;
 
                       return (
                         <tr key={item._id}>
@@ -622,13 +651,17 @@ function App() {
                           </td>
 
                           <td>{item.policy || '—'}</td>
+
                           <td>{item.workerCount ?? '—'}</td>
-                          <td>{metrics.makespan ?? '—'}</td>
+
+                          <td>{makespan ?? '—'}</td>
+
                           <td>
                             {metrics.workerUtilization != null
                               ? `${metrics.workerUtilization}%`
                               : '—'}
                           </td>
+
                           <td>
                             {metrics.totalQueueWaitingTime ?? '—'}
                           </td>
