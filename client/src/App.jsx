@@ -30,19 +30,14 @@ function Timeline({ schedule, workerCount, makespan }) {
   ];
 
   return (
-    <div style={{ marginTop: '28px' }}>
-      <h3>Pipeline Execution Timeline</h3>
+    <div className="timeline-section" style={{ marginTop: '28px' }}>
+      <div className="section-heading"><div><span className="section-kicker">VISUAL ANALYSIS</span><h3>Pipeline Execution Timeline</h3></div><span className="timeline-total">{makespan} time units</span></div>
 
       <p style={{ color: '#94a3b8', marginBottom: '18px' }}>
         Visual representation of job execution across workers.
       </p>
 
-      <div
-        style={{
-          overflowX: 'auto',
-          paddingBottom: '12px'
-        }}
-      >
+      <div style={{ overflowX: 'auto', paddingBottom: '12px' }}>
         <div style={{ minWidth: `${timelineWidth + 125}px` }}>
           <div
             style={{
@@ -53,22 +48,19 @@ function Timeline({ schedule, workerCount, makespan }) {
               paddingBottom: '10px'
             }}
           >
-            {Array.from(
-              { length: totalTime + 1 },
-              (_, index) => (
-                <div
-                  key={index}
-                  style={{
-                    position: 'relative',
-                    flex: '1',
-                    color: '#94a3b8',
-                    fontSize: '12px'
-                  }}
-                >
-                  {index}
-                </div>
-              )
-            )}
+            {Array.from({ length: totalTime + 1 }, (_, index) => (
+              <div
+                key={index}
+                style={{
+                  position: 'relative',
+                  flex: '1',
+                  color: '#94a3b8',
+                  fontSize: '12px'
+                }}
+              >
+                {index}
+              </div>
+            ))}
           </div>
 
           {workers.map((workerId) => {
@@ -179,6 +171,14 @@ function Timeline({ schedule, workerCount, makespan }) {
 function App() {
   const [showForm, setShowForm] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [inputMode, setInputMode] = useState('visual');
+
+  const [visualJobs, setVisualJobs] = useState(
+    sampleJobs.map((job) => ({
+      ...job,
+      dependenciesText: job.dependencies.join(', ')
+    }))
+  );
 
   const [jobsText, setJobsText] = useState(
     JSON.stringify(sampleJobs, null, 2)
@@ -189,7 +189,6 @@ function App() {
 
   const [result, setResult] = useState(null);
   const [compareResult, setCompareResult] = useState(null);
-
   const [history, setHistory] = useState([]);
 
   const [error, setError] = useState('');
@@ -198,6 +197,133 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [compareLoading, setCompareLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  function getVisualJobs() {
+    const jobs = visualJobs.map((job) => ({
+      id: job.id.trim(),
+      duration: Number(job.duration),
+      dependencies: job.dependenciesText
+        .split(',')
+        .map((dependency) => dependency.trim())
+        .filter(Boolean)
+    }));
+
+    if (jobs.length === 0) {
+      throw new Error('Add at least one job to your pipeline.');
+    }
+
+    if (jobs.some((job) => !job.id)) {
+      throw new Error('Every job must have a Job ID.');
+    }
+
+    const ids = jobs.map((job) => job.id);
+
+    if (new Set(ids).size !== ids.length) {
+      throw new Error('Each job must have a unique Job ID.');
+    }
+
+    if (jobs.some((job) => !Number.isFinite(job.duration) || job.duration <= 0)) {
+      throw new Error('Every job must have a duration greater than zero.');
+    }
+
+    return jobs;
+  }
+
+  function getJobsForRequest() {
+    if (inputMode === 'visual') {
+      return getVisualJobs();
+    }
+
+    const jobs = JSON.parse(jobsText);
+
+    if (!Array.isArray(jobs)) {
+      throw new Error('Jobs must be a JSON array.');
+    }
+
+    return jobs;
+  }
+
+  function updateJob(index, field, value) {
+    setVisualJobs((currentJobs) =>
+      currentJobs.map((job, jobIndex) =>
+        jobIndex === index ? { ...job, [field]: value } : job
+      )
+    );
+  }
+
+  function addJob() {
+    const existingIds = new Set(visualJobs.map((job) => job.id));
+    let number = 1;
+    let newId = `Job${number}`;
+
+    while (existingIds.has(newId)) {
+      number += 1;
+      newId = `Job${number}`;
+    }
+
+    setVisualJobs((currentJobs) => [
+      ...currentJobs,
+      {
+        id: newId,
+        duration: 2,
+        dependenciesText: ''
+      }
+    ]);
+  }
+
+  function removeJob(index) {
+    const removedId = visualJobs[index].id;
+
+    setVisualJobs((currentJobs) =>
+      currentJobs
+        .filter((_, jobIndex) => jobIndex !== index)
+        .map((job) => ({
+          ...job,
+          dependenciesText: job.dependenciesText
+            .split(',')
+            .map((dependency) => dependency.trim())
+            .filter((dependency) => dependency !== removedId)
+            .join(', ')
+        }))
+    );
+  }
+
+  function switchInputMode() {
+    setError('');
+
+    if (inputMode === 'visual') {
+      try {
+        const jobs = getVisualJobs();
+        setJobsText(JSON.stringify(jobs, null, 2));
+        setInputMode('json');
+      } catch (err) {
+        setError(err.message);
+      }
+      return;
+    }
+
+    try {
+      const parsedJobs = JSON.parse(jobsText);
+
+      if (!Array.isArray(parsedJobs)) {
+        throw new Error('Jobs must be a JSON array.');
+      }
+
+      setVisualJobs(
+        parsedJobs.map((job) => ({
+          id: String(job.id ?? ''),
+          duration: job.duration ?? 1,
+          dependenciesText: Array.isArray(job.dependencies)
+            ? job.dependencies.join(', ')
+            : ''
+        }))
+      );
+
+      setInputMode('visual');
+    } catch (err) {
+      setError(`Cannot switch to Visual Builder: ${err.message}`);
+    }
+  }
 
   async function runSimulation(event) {
     event.preventDefault();
@@ -209,13 +335,13 @@ function App() {
     let jobs;
 
     try {
-      jobs = JSON.parse(jobsText);
-
-      if (!Array.isArray(jobs)) {
-        throw new Error('Jobs must be a JSON array.');
-      }
+      jobs = getJobsForRequest();
     } catch (err) {
-      setError(`Invalid jobs JSON: ${err.message}`);
+      setError(
+        inputMode === 'json'
+          ? `Invalid jobs JSON: ${err.message}`
+          : err.message
+      );
       return;
     }
 
@@ -256,13 +382,13 @@ function App() {
     let jobs;
 
     try {
-      jobs = JSON.parse(jobsText);
-
-      if (!Array.isArray(jobs)) {
-        throw new Error('Jobs must be a JSON array.');
-      }
+      jobs = getJobsForRequest();
     } catch (err) {
-      setError(`Invalid jobs JSON: ${err.message}`);
+      setError(
+        inputMode === 'json'
+          ? `Invalid jobs JSON: ${err.message}`
+          : err.message
+      );
       return;
     }
 
@@ -417,14 +543,117 @@ function App() {
             <h2>Configure Simulation</h2>
 
             <form onSubmit={runSimulation}>
-              <label>Jobs (JSON format)</label>
+              <div className="input-mode-header">
+                <div>
+                  <h3>Pipeline Jobs</h3>
+                  <p>
+                    Add jobs and define how they depend on each other.
+                  </p>
+                </div>
 
-              <textarea
-                value={jobsText}
-                onChange={(event) => setJobsText(event.target.value)}
-                rows={9}
-                spellCheck="false"
-              />
+                <button
+                  type="button"
+                  className="mode-switch"
+                  onClick={switchInputMode}
+                >
+                  {inputMode === 'visual'
+                    ? 'Switch to JSON Editor'
+                    : 'Switch to Visual Builder'}
+                </button>
+              </div>
+
+              {inputMode === 'visual' ? (
+                <div className="job-builder">
+                  {visualJobs.map((job, index) => (
+                    <div className="job-card" key={index}>
+                      <div className="job-card-header">
+                        <h4>Job {index + 1}</h4>
+
+                        <button
+                          type="button"
+                          className="remove-job-button"
+                          onClick={() => removeJob(index)}
+                          disabled={visualJobs.length === 1}
+                        >
+                          Remove
+                        </button>
+                      </div>
+
+                      <div className="job-fields">
+                        <div className="field-group">
+                          <label>Job ID</label>
+                          <input
+                            type="text"
+                            value={job.id}
+                            placeholder="e.g. A"
+                            onChange={(event) =>
+                              updateJob(index, 'id', event.target.value)
+                            }
+                            required
+                          />
+                        </div>
+
+                        <div className="field-group">
+                          <label>Duration</label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={job.duration}
+                            onChange={(event) =>
+                              updateJob(index, 'duration', event.target.value)
+                            }
+                            required
+                          />
+                        </div>
+
+                        <div className="field-group dependency-field">
+                          <label>Dependencies</label>
+                          <input
+                            type="text"
+                            value={job.dependenciesText}
+                            placeholder="e.g. A, B (leave blank if none)"
+                            onChange={(event) =>
+                              updateJob(
+                                index,
+                                'dependenciesText',
+                                event.target.value
+                              )
+                            }
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  <button
+                    type="button"
+                    className="add-job-button"
+                    onClick={addJob}
+                  >
+                    + Add Another Job
+                  </button>
+
+                  <p className="builder-hint">
+                    Tip: Enter dependency Job IDs separated by commas.
+                    For example, if Job C depends on A and B, enter A, B.
+                  </p>
+                </div>
+              ) : (
+                <div className="json-editor">
+                  <label>Jobs (JSON format)</label>
+
+                  <textarea
+                    value={jobsText}
+                    onChange={(event) => setJobsText(event.target.value)}
+                    rows={12}
+                    spellCheck="false"
+                  />
+
+                  <p className="builder-hint">
+                    Advanced mode: edit the job array directly.
+                  </p>
+                </div>
+              )}
 
               <label>Number of workers</label>
 
@@ -470,27 +699,47 @@ function App() {
         )}
 
         {result && !showHistory && (
-          <section className="content-card results">
-            <h2>Simulation Results</h2>
+          <section className="content-card results results-panel">
+            <div className="results-heading">
+              <div>
+                <span className="section-kicker">SIMULATION COMPLETE</span>
+                <h2>Simulation Results</h2>
+                <p>Your pipeline execution has been scheduled successfully.</p>
+              </div>
+              <span className="result-policy">{policy} POLICY</span>
+            </div>
 
-            <div className="stats">
-              <div className="stat-card">
+            <div className="stats results-metrics">
+              <div className="stat-card result-metric metric-makespan">
+                <span className="metric-label">TOTAL EXECUTION TIME</span>
                 <h3>Makespan</h3>
-                <p>{result.makespan}</p>
+                <p>{result.makespan}<span> units</span></p>
+                <small>Time taken to complete the pipeline</small>
               </div>
 
-              <div className="stat-card">
+              <div className="stat-card result-metric metric-utilization">
+                <span className="metric-label">RESOURCE EFFICIENCY</span>
                 <h3>Worker Utilization</h3>
-                <p>{result.workerUtilization}%</p>
+                <p>{result.workerUtilization}<span>%</span></p>
+                <div className="utilization-track"><div style={{ width: `${Math.min(100, Math.max(0, Number(result.workerUtilization) || 0))}%` }} /></div>
+                <small>Percentage of available worker time used</small>
               </div>
 
-              <div className="stat-card">
+              <div className="stat-card result-metric metric-waiting">
+                <span className="metric-label">QUEUE PERFORMANCE</span>
                 <h3>Total Waiting Time</h3>
-                <p>{result.totalQueueWaitingTime}</p>
+                <p>{result.totalQueueWaitingTime}<span> units</span></p>
+                <small>Combined time jobs spent waiting</small>
               </div>
             </div>
 
-            <h3>Execution Schedule</h3>
+            <div className="section-heading schedule-heading">
+              <div>
+                <span className="section-kicker">JOB-BY-JOB BREAKDOWN</span>
+                <h3>Execution Schedule</h3>
+              </div>
+              <span className="schedule-count">{result.schedule?.length ?? 0} jobs scheduled</span>
+            </div>
 
             <div className="table-wrapper">
               <table>
@@ -508,8 +757,8 @@ function App() {
                 <tbody>
                   {result.schedule?.map((job) => (
                     <tr key={job.jobId}>
-                      <td>{job.jobId}</td>
-                      <td>{job.workerId}</td>
+                      <td><span className="job-id-pill">{job.jobId}</span></td>
+                      <td><span className="worker-pill">Worker {job.workerId}</span></td>
                       <td>{job.start}</td>
                       <td>{job.finish}</td>
                       <td>{job.duration}</td>
@@ -529,27 +778,27 @@ function App() {
         )}
 
         {compareResult && !showHistory && (
-          <section className="content-card results">
-            <h2>Policy Comparison Results</h2>
+          <section className="content-card results results-panel">
+            <div className="results-heading"><div><span className="section-kicker">SCHEDULING ANALYSIS</span><h2>Policy Comparison Results</h2><p>Compare how each scheduling strategy handles the same pipeline.</p></div></div>
 
-            <div className="stats">
-              <div className="stat-card">
+            <div className="stats results-metrics comparison-metrics">
+              <div className="stat-card result-metric">
                 <h3>Best Makespan</h3>
                 <p>{compareResult.bestMakespan}</p>
               </div>
 
-              <div className="stat-card">
+              <div className="stat-card result-metric">
                 <h3>Best Policy</h3>
                 <p>{compareResult.bestPolicies.join(', ')}</p>
               </div>
 
-              <div className="stat-card">
+              <div className="stat-card result-metric">
                 <h3>Policies Compared</h3>
                 <p>{compareResult.comparisons.length}</p>
               </div>
             </div>
 
-            <h3>Performance Comparison</h3>
+            <div className="section-heading schedule-heading"><div><span className="section-kicker">POLICY BENCHMARK</span><h3>Performance Comparison</h3></div></div>
 
             <div className="table-wrapper">
               <table>
@@ -651,9 +900,7 @@ function App() {
                           </td>
 
                           <td>{item.policy || '—'}</td>
-
                           <td>{item.workerCount ?? '—'}</td>
-
                           <td>{makespan ?? '—'}</td>
 
                           <td>
