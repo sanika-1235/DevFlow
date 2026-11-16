@@ -1,5 +1,4 @@
-
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import './App.css';
 
 const sampleJobs = [
@@ -31,7 +30,13 @@ function Timeline({ schedule, workerCount, makespan }) {
 
   return (
     <div className="timeline-section" style={{ marginTop: '28px' }}>
-      <div className="section-heading"><div><span className="section-kicker">VISUAL ANALYSIS</span><h3>Pipeline Execution Timeline</h3></div><span className="timeline-total">{makespan} time units</span></div>
+      <div className="section-heading">
+        <div>
+          <span className="section-kicker">VISUAL ANALYSIS</span>
+          <h3>Pipeline Execution Timeline</h3>
+        </div>
+        <span className="timeline-total">{makespan} time units</span>
+      </div>
 
       <p style={{ color: '#94a3b8', marginBottom: '18px' }}>
         Visual representation of job execution across workers.
@@ -171,6 +176,7 @@ function Timeline({ schedule, workerCount, makespan }) {
 function App() {
   const [showForm, setShowForm] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+
   const [inputMode, setInputMode] = useState('visual');
 
   const [visualJobs, setVisualJobs] = useState(
@@ -189,14 +195,104 @@ function App() {
 
   const [result, setResult] = useState(null);
   const [compareResult, setCompareResult] = useState(null);
+  const [comparisonView, setComparisonView] = useState('table');
+  const [resultsView, setResultsView] = useState('simulation');
+
   const [history, setHistory] = useState([]);
 
   const [error, setError] = useState('');
   const [historyError, setHistoryError] = useState('');
+  const [showCloseReminder, setShowCloseReminder] = useState(false);
+  const [notice, setNotice] = useState('');
+
+  const noticeTimer = useRef(null);
+  const completedSimulationSignature = useRef(null);
+  const completedComparisonSignature = useRef(null);
 
   const [loading, setLoading] = useState(false);
   const [compareLoading, setCompareLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  const simulationInProgress = useRef(false);
+  const comparisonInProgress = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (noticeTimer.current) {
+        clearTimeout(noticeTimer.current);
+      }
+    };
+  }, []);
+
+  function showNotice(message) {
+    setNotice(message);
+
+    if (noticeTimer.current) {
+      clearTimeout(noticeTimer.current);
+    }
+
+    noticeTimer.current = setTimeout(() => {
+      setNotice('');
+      noticeTimer.current = null;
+    }, 2500);
+  }
+
+  function clearCurrentResults() {
+    setResult(null);
+    setCompareResult(null);
+    setResultsView('simulation');
+    setComparisonView('table');
+    setError('');
+    setShowCloseReminder(false);
+    setNotice('');
+
+    if (noticeTimer.current) {
+      clearTimeout(noticeTimer.current);
+      noticeTimer.current = null;
+    }
+  }
+
+  // Called only when the user changes the pipeline configuration.
+  // This allows the updated configuration to be run again.
+  function handleConfigurationChange() {
+    completedSimulationSignature.current = null;
+    completedComparisonSignature.current = null;
+    clearCurrentResults();
+  }
+
+  function resetSimulationForm() {
+    setVisualJobs(
+      sampleJobs.map((job) => ({
+        ...job,
+        dependenciesText: job.dependencies.join(', ')
+      }))
+    );
+
+    setJobsText(JSON.stringify(sampleJobs, null, 2));
+    setInputMode('visual');
+    setWorkerCount(2);
+    setPolicy('FIFO');
+
+    completedSimulationSignature.current = null;
+    completedComparisonSignature.current = null;
+
+    clearCurrentResults();
+  }
+
+  function closeSimulationForm() {
+    if (
+      simulationInProgress.current ||
+      comparisonInProgress.current
+    ) {
+      showNotice(
+        'Please wait until the current operation finishes before closing the form.'
+      );
+      return;
+    }
+
+    resetSimulationForm();
+    setShowForm(false);
+  }
 
   function getVisualJobs() {
     const jobs = visualJobs.map((job) => ({
@@ -222,8 +318,16 @@ function App() {
       throw new Error('Each job must have a unique Job ID.');
     }
 
-    if (jobs.some((job) => !Number.isFinite(job.duration) || job.duration <= 0)) {
-      throw new Error('Every job must have a duration greater than zero.');
+    if (
+      jobs.some(
+        (job) =>
+          !Number.isFinite(job.duration) ||
+          job.duration <= 0
+      )
+    ) {
+      throw new Error(
+        'Every job must have a duration greater than zero.'
+      );
     }
 
     return jobs;
@@ -244,20 +348,42 @@ function App() {
   }
 
   function updateJob(index, field, value) {
+    handleConfigurationChange();
+
     setVisualJobs((currentJobs) =>
       currentJobs.map((job, jobIndex) =>
-        jobIndex === index ? { ...job, [field]: value } : job
+        jobIndex === index
+          ? { ...job, [field]: value }
+          : job
       )
     );
   }
 
   function addJob() {
-    const existingIds = new Set(visualJobs.map((job) => job.id));
-    let number = 1;
-    let newId = `Job${number}`;
+    handleConfigurationChange();
 
-    while (existingIds.has(newId)) {
-      number += 1;
+    const existingIds = new Set(
+      visualJobs.map((job) => job.id.trim().toUpperCase())
+    );
+
+    let newId = '';
+
+    for (let index = 0; index < 26; index += 1) {
+      const candidate = String.fromCharCode(65 + index);
+
+      if (!existingIds.has(candidate)) {
+        newId = candidate;
+        break;
+      }
+    }
+
+    if (!newId) {
+      let number = 1;
+
+      while (existingIds.has(`JOB${number}`)) {
+        number += 1;
+      }
+
       newId = `Job${number}`;
     }
 
@@ -272,6 +398,8 @@ function App() {
   }
 
   function removeJob(index) {
+    handleConfigurationChange();
+
     const removedId = visualJobs[index].id;
 
     setVisualJobs((currentJobs) =>
@@ -289,16 +417,18 @@ function App() {
   }
 
   function switchInputMode() {
-    setError('');
+    handleConfigurationChange();
 
     if (inputMode === 'visual') {
       try {
         const jobs = getVisualJobs();
+
         setJobsText(JSON.stringify(jobs, null, 2));
         setInputMode('json');
       } catch (err) {
         setError(err.message);
       }
+
       return;
     }
 
@@ -321,16 +451,30 @@ function App() {
 
       setInputMode('visual');
     } catch (err) {
-      setError(`Cannot switch to Visual Builder: ${err.message}`);
+      setError(
+        `Cannot switch to Visual Builder: ${err.message}`
+      );
     }
   }
 
   async function runSimulation(event) {
     event.preventDefault();
 
+    if (simulationInProgress.current) {
+      showNotice(
+        'Simulation is already running. Please wait!'
+      );
+      return;
+    }
+
+    if (comparisonInProgress.current) {
+      showNotice(
+        'Policy comparison is already running. Please wait!'
+      );
+      return;
+    }
+
     setError('');
-    setResult(null);
-    setCompareResult(null);
 
     let jobs;
 
@@ -345,6 +489,25 @@ function App() {
       return;
     }
 
+    const simulationSignature = JSON.stringify({
+      jobs,
+      workerCount: Number(workerCount),
+      policy
+    });
+
+    // Same configuration was already simulated successfully.
+    // Show the reminder instead of submitting a duplicate request.
+    if (
+      completedSimulationSignature.current ===
+      simulationSignature
+    ) {
+      setShowCloseReminder(true);
+      return;
+    }
+
+    clearCurrentResults();
+
+    simulationInProgress.current = true;
     setLoading(true);
 
     try {
@@ -363,21 +526,41 @@ function App() {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Simulation failed.');
+        throw new Error(
+          data.error || 'Simulation failed.'
+        );
       }
 
       setResult(data);
+      setResultsView('simulation');
+
+      // Store the successful configuration for duplicate-click detection.
+      completedSimulationSignature.current =
+        simulationSignature;
     } catch (err) {
       setError(err.message);
     } finally {
+      simulationInProgress.current = false;
       setLoading(false);
     }
   }
 
   async function comparePolicies() {
+    if (comparisonInProgress.current) {
+      showNotice(
+        'Policy comparison is already running. Please wait!'
+      );
+      return;
+    }
+
+    if (simulationInProgress.current) {
+      showNotice(
+        'Simulation is already running. Please wait!'
+      );
+      return;
+    }
+
     setError('');
-    setResult(null);
-    setCompareResult(null);
 
     let jobs;
 
@@ -392,6 +575,24 @@ function App() {
       return;
     }
 
+    const comparisonSignature = JSON.stringify({
+      jobs,
+      workerCount: Number(workerCount),
+      policy
+    });
+
+    // Same configuration was already compared successfully.
+    if (
+      completedComparisonSignature.current ===
+      comparisonSignature
+    ) {
+      setShowCloseReminder(true);
+      return;
+    }
+
+    clearCurrentResults();
+
+    comparisonInProgress.current = true;
     setCompareLoading(true);
 
     try {
@@ -409,13 +610,20 @@ function App() {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Comparison failed.');
+        throw new Error(
+          data.error || 'Comparison failed.'
+        );
       }
 
       setCompareResult(data);
+      setResultsView('comparison');
+
+      completedComparisonSignature.current =
+        comparisonSignature;
     } catch (err) {
       setError(err.message);
     } finally {
+      comparisonInProgress.current = false;
       setCompareLoading(false);
     }
   }
@@ -431,7 +639,9 @@ function App() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Could not load history.');
+        throw new Error(
+          data.error || 'Could not load history.'
+        );
       }
 
       const records = Array.isArray(data)
@@ -452,6 +662,17 @@ function App() {
   }
 
   function openSimulation() {
+    if (
+      simulationInProgress.current ||
+      comparisonInProgress.current
+    ) {
+      showNotice(
+        'Please wait until the current operation finishes before starting a new simulation.'
+      );
+      return;
+    }
+
+    resetSimulationForm();
     setShowHistory(false);
     setShowForm(true);
   }
@@ -471,7 +692,10 @@ function App() {
             Dashboard
           </a>
 
-          <a href="#simulation" onClick={openSimulation}>
+          <a
+            href="#simulation"
+            onClick={openSimulation}
+          >
             New Simulation
           </a>
 
@@ -488,7 +712,12 @@ function App() {
       <main className="main">
         <header>
           <div>
-            <h1>{showHistory ? 'Simulation History' : 'Dashboard'}</h1>
+            <h1>
+              {showHistory
+                ? 'Simulation History'
+                : 'Dashboard'}
+            </h1>
+
             <p>
               {showHistory
                 ? 'View your previous pipeline simulations.'
@@ -496,15 +725,20 @@ function App() {
             </p>
           </div>
 
-          {!showHistory && (
-            <button onClick={() => setShowForm(!showForm)}>
-              {showForm ? 'Close Form' : '+ New Simulation'}
+          {!showHistory && !showForm && (
+            <button onClick={openSimulation}>
+              + New Simulation
             </button>
           )}
 
           {showHistory && (
-            <button onClick={fetchHistory} disabled={historyLoading}>
-              {historyLoading ? 'Refreshing...' : 'Refresh History'}
+            <button
+              onClick={fetchHistory}
+              disabled={historyLoading}
+            >
+              {historyLoading
+                ? 'Refreshing...'
+                : 'Refresh History'}
             </button>
           )}
         </header>
@@ -532,14 +766,21 @@ function App() {
 
               <div className="stat-card">
                 <h3>Current Policy</h3>
-                <p>{policy}</p>
+                <p>
+                  {policy === 'CRITICAL_PATH'
+                    ? 'Critical Path'
+                    : policy}
+                </p>
               </div>
             </section>
           </>
         )}
 
         {showForm && !showHistory && (
-          <section className="content-card simulation-form" id="simulation">
+          <section
+            className="content-card simulation-form"
+            id="simulation"
+          >
             <h2>Configure Simulation</h2>
 
             <form onSubmit={runSimulation}>
@@ -565,9 +806,12 @@ function App() {
               {inputMode === 'visual' ? (
                 <div className="job-builder">
                   {visualJobs.map((job, index) => (
-                    <div className="job-card" key={index}>
+                    <div
+                      className="job-card"
+                      key={`${job.id}-${index}`}
+                    >
                       <div className="job-card-header">
-                        <h4>Job {index + 1}</h4>
+                        <h4>Job {job.id || index + 1}</h4>
 
                         <button
                           type="button"
@@ -582,12 +826,17 @@ function App() {
                       <div className="job-fields">
                         <div className="field-group">
                           <label>Job ID</label>
+
                           <input
                             type="text"
                             value={job.id}
                             placeholder="e.g. A"
                             onChange={(event) =>
-                              updateJob(index, 'id', event.target.value)
+                              updateJob(
+                                index,
+                                'id',
+                                event.target.value
+                              )
                             }
                             required
                           />
@@ -595,12 +844,17 @@ function App() {
 
                         <div className="field-group">
                           <label>Duration</label>
+
                           <input
                             type="number"
                             min="1"
                             value={job.duration}
                             onChange={(event) =>
-                              updateJob(index, 'duration', event.target.value)
+                              updateJob(
+                                index,
+                                'duration',
+                                event.target.value
+                              )
                             }
                             required
                           />
@@ -608,6 +862,7 @@ function App() {
 
                         <div className="field-group dependency-field">
                           <label>Dependencies</label>
+
                           <input
                             type="text"
                             value={job.dependenciesText}
@@ -644,7 +899,10 @@ function App() {
 
                   <textarea
                     value={jobsText}
-                    onChange={(event) => setJobsText(event.target.value)}
+                    onChange={(event) => {
+                      handleConfigurationChange();
+                      setJobsText(event.target.value);
+                    }}
                     rows={12}
                     spellCheck="false"
                   />
@@ -661,25 +919,49 @@ function App() {
                 type="number"
                 min="1"
                 value={workerCount}
-                onChange={(event) => setWorkerCount(event.target.value)}
+                onChange={(event) => {
+                  handleConfigurationChange();
+                  setWorkerCount(event.target.value);
+                }}
                 required
               />
 
               <label>Scheduling policy</label>
 
-              <select
-                value={policy}
-                onChange={(event) => setPolicy(event.target.value)}
+              <div
+                className="policy-selector"
+                role="group"
+                aria-label="Scheduling policy"
               >
-                <option value="FIFO">FIFO</option>
-                <option value="SJF">SJF</option>
-                <option value="CRITICAL_PATH">Critical Path</option>
-              </select>
+                {[
+                  { value: 'FIFO', label: 'FIFO' },
+                  { value: 'SJF', label: 'SJF' },
+                  {
+                    value: 'CRITICAL_PATH',
+                    label: 'Critical Path'
+                  }
+                ].map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`policy-option ${
+                      policy === option.value ? 'selected' : ''
+                    }`}
+                    aria-pressed={policy === option.value}
+                    onClick={() => {
+                      handleConfigurationChange();
+                      setPolicy(option.value);
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
 
               <div className="action-buttons">
                 <button
                   type="submit"
-                  disabled={loading || compareLoading}
+                  aria-busy={loading}
                 >
                   {loading ? 'Running...' : 'Run Simulation'}
                 </button>
@@ -687,160 +969,454 @@ function App() {
                 <button
                   type="button"
                   onClick={comparePolicies}
-                  disabled={loading || compareLoading}
+                  aria-busy={compareLoading}
                 >
-                  {compareLoading ? 'Comparing...' : 'Compare All Policies'}
+                  {compareLoading
+                    ? 'Comparing...'
+                    : 'Compare All Policies'}
                 </button>
               </div>
             </form>
 
-            {error && <p className="error-message">{error}</p>}
+            {error && (
+              <p className="error-message" role="alert">
+                {error}
+              </p>
+            )}
+
+            {notice && (
+              <p className="status-message" role="status">
+                {notice}
+              </p>
+            )}
+
+            {showCloseReminder && (
+              <div className="form-footer-actions">
+                <p>
+                  Finished configuring this pipeline? Close the form
+                  to start fresh next time.
+                </p>
+
+                <button
+                  type="button"
+                  className="close-form-button"
+                  onClick={closeSimulationForm}
+                  disabled={loading || compareLoading}
+                >
+                  Close Form &amp; Reset
+                </button>
+              </div>
+            )}
           </section>
         )}
 
-        {result && !showHistory && (
-          <section className="content-card results results-panel">
-            <div className="results-heading">
-              <div>
-                <span className="section-kicker">SIMULATION COMPLETE</span>
-                <h2>Simulation Results</h2>
-                <p>Your pipeline execution has been scheduled successfully.</p>
+        {!showHistory && result && compareResult && (
+          <div
+            className="combined-results-switcher"
+            role="tablist"
+            aria-label="Result views"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={resultsView === 'simulation'}
+              className={
+                resultsView === 'simulation' ? 'active' : ''
+              }
+              onClick={() => setResultsView('simulation')}
+            >
+              Simulation Results
+            </button>
+
+            <button
+              type="button"
+              role="tab"
+              aria-selected={resultsView === 'comparison'}
+              className={
+                resultsView === 'comparison' ? 'active' : ''
+              }
+              onClick={() => setResultsView('comparison')}
+            >
+              Policy Comparison
+            </button>
+          </div>
+        )}
+
+        {result &&
+          !showHistory &&
+          (!compareResult || resultsView === 'simulation') && (
+            <section className="content-card results results-panel">
+              <div className="results-heading">
+                <div>
+                  <span className="section-kicker">
+                    SIMULATION COMPLETE
+                  </span>
+                  <h2>Simulation Results</h2>
+                  <p>
+                    Your pipeline execution has been scheduled successfully.
+                  </p>
+                </div>
+
+                <span className="result-policy">
+                  {policy === 'CRITICAL_PATH'
+                    ? 'CRITICAL PATH'
+                    : policy}{' '}
+                  POLICY
+                </span>
               </div>
-              <span className="result-policy">{policy} POLICY</span>
-            </div>
 
-            <div className="stats results-metrics">
-              <div className="stat-card result-metric metric-makespan">
-                <span className="metric-label">TOTAL EXECUTION TIME</span>
-                <h3>Makespan</h3>
-                <p>{result.makespan}<span> units</span></p>
-                <small>Time taken to complete the pipeline</small>
+              <div className="stats results-metrics">
+                <div className="stat-card result-metric metric-makespan">
+                  <span className="metric-label">
+                    TOTAL EXECUTION TIME
+                  </span>
+                  <h3>Makespan</h3>
+                  <p>
+                    {result.makespan}
+                    <span> units</span>
+                  </p>
+                  <small>
+                    Time taken to complete the pipeline
+                  </small>
+                </div>
+
+                <div className="stat-card result-metric metric-utilization">
+                  <span className="metric-label">
+                    RESOURCE EFFICIENCY
+                  </span>
+                  <h3>Worker Utilization</h3>
+                  <p>
+                    {result.workerUtilization}
+                    <span>%</span>
+                  </p>
+
+                  <div className="utilization-track">
+                    <div
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          Math.max(
+                            0,
+                            Number(result.workerUtilization) || 0
+                          )
+                        )}%`
+                      }}
+                    />
+                  </div>
+
+                  <small>
+                    Percentage of available worker time used
+                  </small>
+                </div>
+
+                <div className="stat-card result-metric metric-waiting">
+                  <span className="metric-label">
+                    QUEUE PERFORMANCE
+                  </span>
+                  <h3>Total Waiting Time</h3>
+                  <p>
+                    {result.totalQueueWaitingTime}
+                    <span> units</span>
+                  </p>
+                  <small>
+                    Combined time jobs spent waiting
+                  </small>
+                </div>
               </div>
 
-              <div className="stat-card result-metric metric-utilization">
-                <span className="metric-label">RESOURCE EFFICIENCY</span>
-                <h3>Worker Utilization</h3>
-                <p>{result.workerUtilization}<span>%</span></p>
-                <div className="utilization-track"><div style={{ width: `${Math.min(100, Math.max(0, Number(result.workerUtilization) || 0))}%` }} /></div>
-                <small>Percentage of available worker time used</small>
+              <div className="section-heading schedule-heading">
+                <div>
+                  <span className="section-kicker">
+                    JOB-BY-JOB BREAKDOWN
+                  </span>
+                  <h3>Execution Schedule</h3>
+                </div>
+
+                <span className="schedule-count">
+                  {result.schedule?.length ?? 0} jobs scheduled
+                </span>
               </div>
 
-              <div className="stat-card result-metric metric-waiting">
-                <span className="metric-label">QUEUE PERFORMANCE</span>
-                <h3>Total Waiting Time</h3>
-                <p>{result.totalQueueWaitingTime}<span> units</span></p>
-                <small>Combined time jobs spent waiting</small>
-              </div>
-            </div>
-
-            <div className="section-heading schedule-heading">
-              <div>
-                <span className="section-kicker">JOB-BY-JOB BREAKDOWN</span>
-                <h3>Execution Schedule</h3>
-              </div>
-              <span className="schedule-count">{result.schedule?.length ?? 0} jobs scheduled</span>
-            </div>
-
-            <div className="table-wrapper">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Job</th>
-                    <th>Worker</th>
-                    <th>Start</th>
-                    <th>Finish</th>
-                    <th>Duration</th>
-                    <th>Waiting Time</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {result.schedule?.map((job) => (
-                    <tr key={job.jobId}>
-                      <td><span className="job-id-pill">{job.jobId}</span></td>
-                      <td><span className="worker-pill">Worker {job.workerId}</span></td>
-                      <td>{job.start}</td>
-                      <td>{job.finish}</td>
-                      <td>{job.duration}</td>
-                      <td>{job.waitingTime}</td>
+              <div className="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Job</th>
+                      <th>Worker</th>
+                      <th>Start</th>
+                      <th>Finish</th>
+                      <th>Duration</th>
+                      <th>Waiting Time</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
 
-            <Timeline
-              schedule={result.schedule}
-              workerCount={workerCount}
-              makespan={result.makespan}
-            />
-          </section>
-        )}
-
-        {compareResult && !showHistory && (
-          <section className="content-card results results-panel">
-            <div className="results-heading"><div><span className="section-kicker">SCHEDULING ANALYSIS</span><h2>Policy Comparison Results</h2><p>Compare how each scheduling strategy handles the same pipeline.</p></div></div>
-
-            <div className="stats results-metrics comparison-metrics">
-              <div className="stat-card result-metric">
-                <h3>Best Makespan</h3>
-                <p>{compareResult.bestMakespan}</p>
+                  <tbody>
+                    {result.schedule?.map((job) => (
+                      <tr key={job.jobId}>
+                        <td>
+                          <span className="job-id-pill">
+                            {job.jobId}
+                          </span>
+                        </td>
+                        <td>
+                          <span className="worker-pill">
+                            Worker {job.workerId}
+                          </span>
+                        </td>
+                        <td>{job.start}</td>
+                        <td>{job.finish}</td>
+                        <td>{job.duration}</td>
+                        <td>{job.waitingTime}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
 
-              <div className="stat-card result-metric">
-                <h3>Best Policy</h3>
-                <p>{compareResult.bestPolicies.join(', ')}</p>
-              </div>
+              <Timeline
+                schedule={result.schedule}
+                workerCount={workerCount}
+                makespan={result.makespan}
+              />
+            </section>
+          )}
 
-              <div className="stat-card result-metric">
-                <h3>Policies Compared</h3>
-                <p>{compareResult.comparisons.length}</p>
-              </div>
-            </div>
+        {compareResult &&
+          !showHistory &&
+          (!result || resultsView === 'comparison') &&
+          (() => {
+            const bestMakespan = Math.min(
+              ...compareResult.comparisons.map(
+                (item) => Number(item.makespan)
+              )
+            );
 
-            <div className="section-heading schedule-heading"><div><span className="section-kicker">POLICY BENCHMARK</span><h3>Performance Comparison</h3></div></div>
+            const bestPolicies = compareResult.comparisons.filter(
+              (item) => Number(item.makespan) === bestMakespan
+            );
 
-            <div className="table-wrapper">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Policy</th>
-                    <th>Makespan</th>
-                    <th>Worker Utilization</th>
-                    <th>Total Waiting</th>
-                    <th>Average Waiting</th>
-                  </tr>
-                </thead>
+            const bestTimeline = bestPolicies.find(
+              (item) =>
+                Array.isArray(item.schedule) &&
+                item.schedule.length > 0
+            );
 
-                <tbody>
-                  {compareResult.comparisons.map((item) => (
-                    <tr key={item.policy}>
-                      <td>{item.policy}</td>
-                      <td>{item.makespan}</td>
-                      <td>{item.workerUtilization}%</td>
-                      <td>{item.totalQueueWaitingTime}</td>
-                      <td>{item.averageQueueWaitingTime}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
+            return (
+              <section className="content-card results results-panel">
+                <div className="results-heading">
+                  <div>
+                    <span className="section-kicker">
+                      SCHEDULING ANALYSIS
+                    </span>
+                    <h2>Policy Comparison Results</h2>
+                    <p>
+                      Compare how each scheduling strategy handles
+                      the same pipeline.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="stats results-metrics comparison-metrics">
+                  <div className="stat-card result-metric">
+                    <h3>Best Makespan</h3>
+                    <p>{compareResult.bestMakespan}</p>
+                    <small>Lowest total execution time</small>
+                  </div>
+
+                  <div className="stat-card result-metric">
+                    <h3>Best Policy</h3>
+                    <p className="policy-name-value">
+                      {compareResult.bestPolicies
+                        .map((name) =>
+                          name === 'CRITICAL_PATH'
+                            ? 'Critical Path'
+                            : name
+                        )
+                        .join(', ')}
+                    </p>
+                    <small>
+                      Includes all policies tied for best
+                    </small>
+                  </div>
+
+                  <div className="stat-card result-metric">
+                    <h3>Policies Compared</h3>
+                    <p>{compareResult.comparisons.length}</p>
+                    <small>
+                      Scheduling strategies benchmarked
+                    </small>
+                  </div>
+                </div>
+
+                <div
+                  className="comparison-tabs"
+                  role="tablist"
+                  aria-label="Comparison views"
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={comparisonView === 'table'}
+                    className={
+                      comparisonView === 'table' ? 'active' : ''
+                    }
+                    onClick={() => setComparisonView('table')}
+                  >
+                    Policy Comparison
+                  </button>
+
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={comparisonView === 'timeline'}
+                    className={
+                      comparisonView === 'timeline' ? 'active' : ''
+                    }
+                    onClick={() => setComparisonView('timeline')}
+                  >
+                    Best Policy Timeline
+                  </button>
+                </div>
+
+                {comparisonView === 'table' ? (
+                  <>
+                    <div className="section-heading schedule-heading">
+                      <div>
+                        <span className="section-kicker">
+                          POLICY BENCHMARK
+                        </span>
+                        <h3>Performance Comparison</h3>
+                      </div>
+
+                      <span className="best-result-note">
+                        BEST MAKESPAN HIGHLIGHTED
+                      </span>
+                    </div>
+
+                    <div className="table-wrapper">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Policy</th>
+                            <th>Makespan</th>
+                            <th>Worker Utilization</th>
+                            <th>Total Waiting</th>
+                            <th>Average Waiting</th>
+                          </tr>
+                        </thead>
+
+                        <tbody>
+                          {compareResult.comparisons.map((item) => {
+                            const isBest =
+                              Number(item.makespan) === bestMakespan;
+
+                            const displayPolicy =
+                              item.policy === 'CRITICAL_PATH'
+                                ? 'Critical Path'
+                                : item.policy;
+
+                            return (
+                              <tr
+                                key={item.policy}
+                                className={
+                                  isBest ? 'best-policy-row' : ''
+                                }
+                              >
+                                <td>
+                                  <span className="comparison-policy-name">
+                                    {displayPolicy}
+                                  </span>
+
+                                  {isBest && (
+                                    <span className="best-policy-badge">
+                                      BEST
+                                    </span>
+                                  )}
+                                </td>
+
+                                <td
+                                  className={
+                                    isBest ? 'best-metric-value' : ''
+                                  }
+                                >
+                                  {item.makespan}
+                                </td>
+
+                                <td>
+                                  {item.workerUtilization}%
+                                </td>
+                                <td>
+                                  {item.totalQueueWaitingTime}
+                                </td>
+                                <td>
+                                  {item.averageQueueWaitingTime}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                ) : bestTimeline ? (
+                  <div className="comparison-timeline-view">
+                    <div className="section-heading schedule-heading">
+                      <div>
+                        <span className="section-kicker">
+                          BEST PERFORMING SCHEDULE
+                        </span>
+                        <h3>
+                          {bestTimeline.policy === 'CRITICAL_PATH'
+                            ? 'Critical Path'
+                            : bestTimeline.policy}{' '}
+                          Timeline
+                        </h3>
+                      </div>
+
+                      <span className="best-policy-badge">
+                        BEST · {bestTimeline.makespan} UNITS
+                      </span>
+                    </div>
+
+                    <Timeline
+                      schedule={bestTimeline.schedule}
+                      workerCount={workerCount}
+                      makespan={bestTimeline.makespan}
+                    />
+                  </div>
+                ) : (
+                  <div className="timeline-unavailable">
+                    <h3>
+                      Timeline data is not available for this comparison
+                    </h3>
+                    <p>
+                      The comparison endpoint returned performance
+                      metrics without individual job schedules.
+                      Run a single simulation to view its Gantt timeline.
+                    </p>
+                  </div>
+                )}
+              </section>
+            );
+          })()}
 
         {showHistory && (
           <section className="content-card results" id="history">
             <h2>Previous Simulations</h2>
 
-            {historyLoading && <p>Loading simulation history...</p>}
+            {historyLoading && (
+              <p>Loading simulation history...</p>
+            )}
 
             {historyError && (
               <p className="error-message">{historyError}</p>
             )}
 
-            {!historyLoading && !historyError && history.length === 0 && (
-              <p>No simulation history found yet.</p>
-            )}
+            {!historyLoading &&
+              !historyError &&
+              history.length === 0 && (
+                <p>No simulation history found yet.</p>
+              )}
 
             {!historyLoading && history.length > 0 && (
               <div className="table-wrapper">
@@ -895,7 +1471,9 @@ function App() {
                         <tr key={item._id}>
                           <td>
                             {item.createdAt
-                              ? new Date(item.createdAt).toLocaleString()
+                              ? new Date(
+                                  item.createdAt
+                                ).toLocaleString()
                               : '—'}
                           </td>
 
