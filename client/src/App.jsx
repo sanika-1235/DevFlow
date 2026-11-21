@@ -1,3 +1,4 @@
+
 import { useEffect, useRef, useState } from 'react';
 import './App.css';
 
@@ -195,6 +196,9 @@ function App() {
 
   const [result, setResult] = useState(null);
   const [compareResult, setCompareResult] = useState(null);
+  const [criticalPathResult, setCriticalPathResult] = useState(null);
+  const [workerAnalysisResult, setWorkerAnalysisResult] = useState(null);
+  const [policyRecommendation, setPolicyRecommendation] = useState(null);
   const [comparisonView, setComparisonView] = useState('table');
   const [resultsView, setResultsView] = useState('simulation');
 
@@ -211,10 +215,16 @@ function App() {
 
   const [loading, setLoading] = useState(false);
   const [compareLoading, setCompareLoading] = useState(false);
+  const [criticalPathLoading, setCriticalPathLoading] = useState(false);
+  const [workerAnalysisLoading, setWorkerAnalysisLoading] = useState(false);
+  const [recommendationLoading, setRecommendationLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
 
   const simulationInProgress = useRef(false);
   const comparisonInProgress = useRef(false);
+  const criticalPathInProgress = useRef(false);
+  const workerAnalysisInProgress = useRef(false);
+  const recommendationInProgress = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -240,6 +250,9 @@ function App() {
   function clearCurrentResults() {
     setResult(null);
     setCompareResult(null);
+    setCriticalPathResult(null);
+    setWorkerAnalysisResult(null);
+    setPolicyRecommendation(null);
     setResultsView('simulation');
     setComparisonView('table');
     setError('');
@@ -253,7 +266,6 @@ function App() {
   }
 
   // Called only when the user changes the pipeline configuration.
-  // This allows the updated configuration to be run again.
   function handleConfigurationChange() {
     completedSimulationSignature.current = null;
     completedComparisonSignature.current = null;
@@ -282,7 +294,10 @@ function App() {
   function closeSimulationForm() {
     if (
       simulationInProgress.current ||
-      comparisonInProgress.current
+      comparisonInProgress.current ||
+      criticalPathInProgress.current ||
+      workerAnalysisInProgress.current ||
+      recommendationInProgress.current
     ) {
       showNotice(
         'Please wait until the current operation finishes before closing the form.'
@@ -474,6 +489,17 @@ function App() {
       return;
     }
 
+    if (
+      criticalPathInProgress.current ||
+      workerAnalysisInProgress.current ||
+      recommendationInProgress.current
+    ) {
+      showNotice(
+        'Another analysis is already running. Please wait!'
+      );
+      return;
+    }
+
     setError('');
 
     let jobs;
@@ -495,8 +521,6 @@ function App() {
       policy
     });
 
-    // Same configuration was already simulated successfully.
-    // Show the reminder instead of submitting a duplicate request.
     if (
       completedSimulationSignature.current ===
       simulationSignature
@@ -534,7 +558,6 @@ function App() {
       setResult(data);
       setResultsView('simulation');
 
-      // Store the successful configuration for duplicate-click detection.
       completedSimulationSignature.current =
         simulationSignature;
     } catch (err) {
@@ -560,6 +583,17 @@ function App() {
       return;
     }
 
+    if (
+      criticalPathInProgress.current ||
+      workerAnalysisInProgress.current ||
+      recommendationInProgress.current
+    ) {
+      showNotice(
+        'Another analysis is already running. Please wait!'
+      );
+      return;
+    }
+
     setError('');
 
     let jobs;
@@ -581,7 +615,6 @@ function App() {
       policy
     });
 
-    // Same configuration was already compared successfully.
     if (
       completedComparisonSignature.current ===
       comparisonSignature
@@ -628,6 +661,199 @@ function App() {
     }
   }
 
+  async function analyzeCriticalPath() {
+    if (criticalPathInProgress.current) {
+      showNotice(
+        'Critical Path Analysis is already running. Please wait!'
+      );
+      return;
+    }
+
+    if (
+      simulationInProgress.current ||
+      comparisonInProgress.current ||
+      workerAnalysisInProgress.current ||
+      recommendationInProgress.current
+    ) {
+      showNotice(
+        'Please wait until the current operation finishes before analyzing the Critical Path.'
+      );
+      return;
+    }
+
+    setError('');
+
+    let jobs;
+
+    try {
+      jobs = getJobsForRequest();
+    } catch (err) {
+      setError(
+        inputMode === 'json'
+          ? `Invalid jobs JSON: ${err.message}`
+          : err.message
+      );
+      return;
+    }
+
+    criticalPathInProgress.current = true;
+    setCriticalPathLoading(true);
+
+    try {
+      const response = await fetch('/api/critical-path', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ jobs })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(
+          data.error || 'Critical Path Analysis failed.'
+        );
+      }
+
+      setCriticalPathResult(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      criticalPathInProgress.current = false;
+      setCriticalPathLoading(false);
+    }
+  }
+
+  // Compare the same pipeline using different worker counts.
+  async function analyzeWorkerCounts() {
+    if (workerAnalysisInProgress.current) {
+      showNotice('Worker analysis is already running. Please wait!');
+      return;
+    }
+
+    if (
+      simulationInProgress.current ||
+      comparisonInProgress.current ||
+      criticalPathInProgress.current ||
+      recommendationInProgress.current
+    ) {
+      showNotice(
+        'Please wait until the current operation finishes before analyzing worker counts.'
+      );
+      return;
+    }
+
+    setError('');
+
+    let jobs;
+
+    try {
+      jobs = getJobsForRequest();
+    } catch (err) {
+      setError(
+        inputMode === 'json'
+          ? `Invalid jobs JSON: ${err.message}`
+          : err.message
+      );
+      return;
+    }
+
+    workerAnalysisInProgress.current = true;
+    setWorkerAnalysisLoading(true);
+
+    try {
+      const response = await fetch('/api/worker-analysis', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          jobs,
+          workerCounts: [1, 2, 3, 4, 5],
+          policy
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Worker analysis failed.');
+      }
+
+      setWorkerAnalysisResult(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      workerAnalysisInProgress.current = false;
+      setWorkerAnalysisLoading(false);
+    }
+  }
+
+  // Evaluate all scheduling policies and request an automatic recommendation.
+  async function recommendPolicy() {
+    if (recommendationInProgress.current) {
+      showNotice('Policy recommendation is already running. Please wait!');
+      return;
+    }
+
+    if (
+      simulationInProgress.current ||
+      comparisonInProgress.current ||
+      criticalPathInProgress.current ||
+      workerAnalysisInProgress.current
+    ) {
+      showNotice(
+        'Please wait until the current operation finishes before requesting a recommendation.'
+      );
+      return;
+    }
+
+    setError('');
+
+    let jobs;
+
+    try {
+      jobs = getJobsForRequest();
+    } catch (err) {
+      setError(
+        inputMode === 'json'
+          ? `Invalid jobs JSON: ${err.message}`
+          : err.message
+      );
+      return;
+    }
+
+    recommendationInProgress.current = true;
+    setRecommendationLoading(true);
+
+    try {
+      const response = await fetch('/api/recommend-policy', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          jobs,
+          workerCount: Number(workerCount)
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Policy recommendation failed.');
+      }
+
+      setPolicyRecommendation(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      recommendationInProgress.current = false;
+      setRecommendationLoading(false);
+    }
+  }
+
   async function fetchHistory() {
     setShowHistory(true);
     setShowForm(false);
@@ -664,7 +890,10 @@ function App() {
   function openSimulation() {
     if (
       simulationInProgress.current ||
-      comparisonInProgress.current
+      comparisonInProgress.current ||
+      criticalPathInProgress.current ||
+      workerAnalysisInProgress.current ||
+      recommendationInProgress.current
     ) {
       showNotice(
         'Please wait until the current operation finishes before starting a new simulation.'
@@ -860,13 +1089,13 @@ function App() {
                           />
                         </div>
 
-                        <div className="field-group dependency-field">
+                        <div className="field-group">
                           <label>Dependencies</label>
 
                           <input
                             type="text"
                             value={job.dependenciesText}
-                            placeholder="e.g. A, B (leave blank if none)"
+                            placeholder="e.g. A, B"
                             onChange={(event) =>
                               updateJob(
                                 index,
@@ -875,6 +1104,10 @@ function App() {
                               )
                             }
                           />
+
+                          <small>
+                            Enter job IDs separated by commas.
+                          </small>
                         </div>
                       </div>
                     </div>
@@ -887,75 +1120,69 @@ function App() {
                   >
                     + Add Another Job
                   </button>
-
-                  <p className="builder-hint">
-                    Tip: Enter dependency Job IDs separated by commas.
-                    For example, if Job C depends on A and B, enter A, B.
-                  </p>
                 </div>
               ) : (
-                <div className="json-editor">
-                  <label>Jobs (JSON format)</label>
+                <div className="field-group">
+                  <label htmlFor="jobs-json">Jobs JSON</label>
 
                   <textarea
+                    id="jobs-json"
                     value={jobsText}
                     onChange={(event) => {
                       handleConfigurationChange();
                       setJobsText(event.target.value);
                     }}
-                    rows={12}
+                    rows={10}
                     spellCheck="false"
                   />
-
-                  <p className="builder-hint">
-                    Advanced mode: edit the job array directly.
-                  </p>
                 </div>
               )}
 
-              <label>Number of workers</label>
+              <div className="field-group worker-field">
+                <label htmlFor="worker-count">Number of Workers</label>
 
-              <input
-                type="number"
-                min="1"
-                value={workerCount}
-                onChange={(event) => {
-                  handleConfigurationChange();
-                  setWorkerCount(event.target.value);
-                }}
-                required
-              />
+                <input
+                  id="worker-count"
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={workerCount}
+                  onChange={(event) => {
+                    handleConfigurationChange();
+                    setWorkerCount(Number(event.target.value));
+                  }}
+                  required
+                />
+              </div>
 
-              <label>Scheduling policy</label>
+              <div className="field-group">
+                <label>Scheduling Policy</label>
 
-              <div
-                className="policy-selector"
-                role="group"
-                aria-label="Scheduling policy"
-              >
-                {[
-                  { value: 'FIFO', label: 'FIFO' },
-                  { value: 'SJF', label: 'SJF' },
-                  {
-                    value: 'CRITICAL_PATH',
-                    label: 'Critical Path'
-                  }
-                ].map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={`policy-option ${
-                      policy === option.value ? 'selected' : ''
-                    }`}
-                    aria-pressed={policy === option.value}
-                    onClick={() => {
-                      handleConfigurationChange();
-                      setPolicy(option.value);
-                    }}
-                  >
-                    {option.label}
-                  </button>
-                ))}
+                <div className="policy-options">
+                  {[
+                    { value: 'FIFO', label: 'FIFO' },
+                    { value: 'SJF', label: 'SJF' },
+                    {
+                      value: 'CRITICAL_PATH',
+                      label: 'Critical Path'
+                    }
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`policy-option ${
+                        policy === option.value ? 'selected' : ''
+                      }`}
+                      aria-pressed={policy === option.value}
+                      onClick={() => {
+                        handleConfigurationChange();
+                        setPolicy(option.value);
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="action-buttons">
@@ -974,6 +1201,39 @@ function App() {
                   {compareLoading
                     ? 'Comparing...'
                     : 'Compare All Policies'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={analyzeCriticalPath}
+                  aria-busy={criticalPathLoading}
+                  disabled={criticalPathLoading}
+                >
+                  {criticalPathLoading
+                    ? 'Analyzing...'
+                    : 'Analyze Critical Path'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={recommendPolicy}
+                  aria-busy={recommendationLoading}
+                  disabled={recommendationLoading}
+                >
+                  {recommendationLoading
+                    ? 'Finding Best Policy...'
+                    : 'Recommend Best Policy'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={analyzeWorkerCounts}
+                  aria-busy={workerAnalysisLoading}
+                  disabled={workerAnalysisLoading}
+                >
+                  {workerAnalysisLoading
+                    ? 'Analyzing Workers...'
+                    : 'Analyze Worker Counts'}
                 </button>
               </div>
             </form>
@@ -999,14 +1259,508 @@ function App() {
 
                 <button
                   type="button"
-                  className="close-form-button"
                   onClick={closeSimulationForm}
-                  disabled={loading || compareLoading}
                 >
-                  Close Form &amp; Reset
+                  Close Form & Reset
                 </button>
               </div>
             )}
+
+            <div className="form-footer-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={closeSimulationForm}
+              >
+                Close Form & Reset
+              </button>
+            </div>
+          </section>
+        )}
+
+        {policyRecommendation && !showHistory && (
+          <section className="content-card results results-panel">
+            <div className="results-heading">
+              <div>
+                <span className="section-kicker">
+                  INTELLIGENT OPTIMIZATION
+                </span>
+                <h2>Scheduling Policy Recommendation</h2>
+                <p>
+                  All three scheduling policies were evaluated using
+                  the same pipeline and worker count.
+                </p>
+              </div>
+
+              <span className="result-policy">POLICY ADVISOR</span>
+            </div>
+
+            <div className="stats results-metrics">
+              <div className="stat-card result-metric metric-makespan">
+                <span className="metric-label">RECOMMENDED POLICY</span>
+                <h3>
+                  {policyRecommendation.recommendation.policy === 'CRITICAL_PATH'
+                    ? 'Critical Path'
+                    : policyRecommendation.recommendation.policy}
+                </h3>
+                <p>
+                  {policyRecommendation.recommendation.makespan}
+                  <span> units</span>
+                </p>
+                <small>Best completion time for this workload</small>
+              </div>
+
+              <div className="stat-card result-metric metric-utilization">
+                <span className="metric-label">WORKER UTILIZATION</span>
+                <h3>Resource Efficiency</h3>
+                <p>
+                  {policyRecommendation.recommendation.workerUtilization}
+                  <span>%</span>
+                </p>
+                <small>Utilization under the recommended policy</small>
+              </div>
+
+              <div className="stat-card result-metric metric-waiting">
+                <span className="metric-label">TOTAL QUEUE WAITING</span>
+                <h3>Waiting Time</h3>
+                <p>
+                  {policyRecommendation.recommendation.totalQueueWaitingTime}
+                  <span> units</span>
+                </p>
+                <small>Combined time jobs spent waiting</small>
+              </div>
+            </div>
+
+            <div className="section-heading schedule-heading">
+              <div>
+                <span className="section-kicker">
+                  PERFORMANCE BENCHMARK
+                </span>
+                <h3>Scheduling Policy Comparison</h3>
+              </div>
+
+              <span className="schedule-count">
+                {workerCount} workers tested
+              </span>
+            </div>
+
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Policy</th>
+                    <th>Makespan</th>
+                    <th>Utilization</th>
+                    <th>Total Waiting</th>
+                    <th>Average Waiting</th>
+                    <th>Result</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {policyRecommendation.comparisons.map((item) => {
+                    const recommended =
+                      item.policy ===
+                      policyRecommendation.recommendation.policy;
+
+                    return (
+                      <tr
+                        key={item.policy}
+                        className={
+                          recommended ? 'best-policy-row' : ''
+                        }
+                      >
+                        <td>
+                          {item.policy === 'CRITICAL_PATH'
+                            ? 'Critical Path'
+                            : item.policy}
+                        </td>
+
+                        <td
+                          className={
+                            item.makespan ===
+                            policyRecommendation.bestMakespan
+                              ? 'best-metric-value'
+                              : ''
+                          }
+                        >
+                          {item.makespan}
+                        </td>
+
+                        <td>{item.workerUtilization}%</td>
+                        <td>{item.totalQueueWaitingTime}</td>
+                        <td>{item.averageQueueWaitingTime}</td>
+
+                        <td>
+                          {recommended ? (
+                            <span className="best-policy-badge">
+                              RECOMMENDED
+                            </span>
+                          ) : item.makespan ===
+                            policyRecommendation.bestMakespan ? (
+                            <span className="worker-pill">TIED</span>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <p className="builder-hint" style={{ marginTop: '20px' }}>
+              <strong>Why this policy?</strong>{' '}
+              {policyRecommendation.reason} The recommendation
+              prioritizes the lowest makespan, then the lowest total
+              queue waiting time. If both metrics tie, the predefined
+              policy order provides a consistent tie-break.
+            </p>
+
+            {policyRecommendation.bestPolicies.length > 1 && (
+              <p className="builder-hint">
+                Policies tied for the best makespan:{' '}
+                {policyRecommendation.bestPolicies
+                  .map((item) =>
+                    item === 'CRITICAL_PATH' ? 'Critical Path' : item
+                  )
+                  .join(', ')}.
+              </p>
+            )}
+          </section>
+        )}
+
+        {criticalPathResult && !showHistory && (
+          <section className="content-card results results-panel">
+            <div className="results-heading">
+              <div>
+                <span className="section-kicker">
+                  DEPENDENCY ANALYSIS
+                </span>
+                <h2>Critical Path Method</h2>
+                <p>
+                  Identify the longest dependency path and available
+                  scheduling slack.
+                </p>
+              </div>
+
+              <span className="result-policy">CPM ANALYSIS</span>
+            </div>
+
+            <div className="stats results-metrics">
+              <div className="stat-card result-metric metric-makespan">
+                <span className="metric-label">PROJECT DURATION</span>
+                <h3>Critical Path Duration</h3>
+                <p>
+                  {criticalPathResult.projectDuration}
+                  <span> units</span>
+                </p>
+                <small>
+                  Minimum dependency-based completion duration
+                </small>
+              </div>
+
+              <div className="stat-card result-metric">
+                <span className="metric-label">CRITICAL JOBS</span>
+                <h3>Critical Path Jobs</h3>
+                <p>
+                  {criticalPathResult.criticalJobs.length}
+                </p>
+                <small>
+                  {criticalPathResult.criticalJobs.join(', ')}
+                </small>
+              </div>
+
+              <div className="stat-card result-metric">
+                <span className="metric-label">PIPELINE BREAKDOWN</span>
+                <h3>Jobs Analyzed</h3>
+                <p>{criticalPathResult.jobAnalysis.length}</p>
+                <small>
+                  Every job evaluated using forward and backward passes
+                </small>
+              </div>
+            </div>
+
+            <div className="section-heading schedule-heading">
+              <div>
+                <span className="section-kicker">
+                  CPM JOB BREAKDOWN
+                </span>
+                <h3>Critical Path Schedule Analysis</h3>
+              </div>
+
+              <span className="schedule-count">
+                {criticalPathResult.criticalJobs.length} critical jobs
+              </span>
+            </div>
+
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Job</th>
+                    <th>Duration</th>
+                    <th>ES</th>
+                    <th>EF</th>
+                    <th>LS</th>
+                    <th>LF</th>
+                    <th>Slack</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {criticalPathResult.jobAnalysis.map((job) => (
+                    <tr
+                      key={job.jobId}
+                      className={
+                        job.isCritical ? 'best-policy-row' : ''
+                      }
+                    >
+                      <td>
+                        <span className="job-id-pill">
+                          {job.jobId}
+                        </span>
+                      </td>
+                      <td>{job.duration}</td>
+                      <td>{job.earliestStart}</td>
+                      <td>{job.earliestFinish}</td>
+                      <td>{job.latestStart}</td>
+                      <td>{job.latestFinish}</td>
+                      <td>{job.slack}</td>
+                      <td>
+                        {job.isCritical ? (
+                          <span className="best-policy-badge">
+                            CRITICAL
+                          </span>
+                        ) : (
+                          <span className="worker-pill">
+                            NON-CRITICAL
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <p className="builder-hint">
+              ES: Earliest Start · EF: Earliest Finish · LS: Latest Start ·
+              LF: Latest Finish. Slack is the time a job can be delayed
+              without delaying the dependency-based project completion.
+            </p>
+
+            <p className="builder-hint">
+              Note: CPM calculates the minimum duration based on job
+              dependencies, assuming unlimited workers. The actual
+              simulation makespan can be longer when worker capacity is
+              limited.
+            </p>
+          </section>
+        )}
+
+        {workerAnalysisResult && !showHistory && (
+          <section className="content-card results results-panel">
+            <div className="results-heading">
+              <div>
+                <span className="section-kicker">
+                  RESOURCE OPTIMIZATION
+                </span>
+                <h2>What-if Worker Analysis</h2>
+                <p>
+                  Compare the same pipeline using different worker counts
+                  with the {workerAnalysisResult.policy} scheduling policy.
+                </p>
+              </div>
+
+              <span className="result-policy">WORKER ANALYSIS</span>
+            </div>
+
+            <div className="stats results-metrics">
+              <div className="stat-card result-metric metric-makespan">
+                <span className="metric-label">BEST MAKESPAN</span>
+                <h3>Minimum Execution Time</h3>
+                <p>
+                  {workerAnalysisResult.bestMakespan}
+                  <span> units</span>
+                </p>
+                <small>Fastest completion time across tested configurations</small>
+              </div>
+
+              <div className="stat-card result-metric">
+                <span className="metric-label">RECOMMENDED CONFIGURATION</span>
+                <h3>Worker Count</h3>
+                <p>{workerAnalysisResult.recommendedWorkerCount}</p>
+                <small>
+                  Fewest workers needed to achieve the best makespan
+                </small>
+              </div>
+
+              <div className="stat-card result-metric">
+                <span className="metric-label">CONFIGURATIONS TESTED</span>
+                <h3>Worker Setups</h3>
+                <p>{workerAnalysisResult.results.length}</p>
+                <small>Worker counts from 1 through 5</small>
+              </div>
+            </div>
+
+            <div className="section-heading schedule-heading">
+              <div>
+                <span className="section-kicker">PERFORMANCE BENCHMARK</span>
+                <h3>Worker Count Comparison</h3>
+              </div>
+              <span className="schedule-count">
+                {workerAnalysisResult.policy} policy
+              </span>
+            </div>
+
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Workers</th>
+                    <th>Makespan</th>
+                    <th>Utilization</th>
+                    <th>Total Waiting</th>
+                    <th>Average Waiting</th>
+                    <th>Recommendation</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {workerAnalysisResult.results.map((item) => {
+                    const recommended =
+                      item.workerCount ===
+                      workerAnalysisResult.recommendedWorkerCount;
+
+                    return (
+                      <tr
+                        key={item.workerCount}
+                        className={
+                          recommended ? 'best-policy-row' : ''
+                        }
+                      >
+                        <td>
+                          {item.workerCount}{' '}
+                          {item.workerCount === 1 ? 'worker' : 'workers'}
+                        </td>
+
+                        <td
+                          className={
+                            item.makespan === workerAnalysisResult.bestMakespan
+                              ? 'best-metric-value'
+                              : ''
+                          }
+                        >
+                          {item.makespan}
+                        </td>
+
+                        <td>{item.workerUtilization}%</td>
+                        <td>{item.totalQueueWaitingTime}</td>
+                        <td>{item.averageQueueWaitingTime}</td>
+
+                        <td>
+                          {recommended ? (
+                            <span className="best-policy-badge">
+                              RECOMMENDED
+                            </span>
+                          ) : item.makespan === workerAnalysisResult.bestMakespan ? (
+                            <span className="worker-pill">
+                              Same makespan
+                            </span>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ marginTop: '28px' }}>
+              <div className="section-heading">
+                <div>
+                  <span className="section-kicker">
+                    EXECUTION TIME VISUALIZATION
+                  </span>
+                  <h3>Makespan by Worker Count</h3>
+                </div>
+              </div>
+
+              {workerAnalysisResult.results.map((item) => {
+                const maximumMakespan = Math.max(
+                  ...workerAnalysisResult.results.map(
+                    (entry) => entry.makespan
+                  ),
+                  1
+                );
+
+                const barWidth = Math.max(
+                  3,
+                  (item.makespan / maximumMakespan) * 100
+                );
+
+                const isRecommended =
+                  item.workerCount ===
+                  workerAnalysisResult.recommendedWorkerCount;
+
+                return (
+                  <div key={item.workerCount}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        marginBottom: '7px',
+                        color: '#cbd5e1',
+                        fontSize: '13px'
+                      }}
+                    >
+                      <span>
+                        {item.workerCount}{' '}
+                        {item.workerCount === 1 ? 'worker' : 'workers'}
+                        {isRecommended ? ' · Recommended' : ''}
+                      </span>
+                      <span>{item.makespan} units</span>
+                    </div>
+
+                    <div
+                      style={{
+                        height: '12px',
+                        background: '#1e293b',
+                        borderRadius: '999px',
+                        overflow: 'hidden',
+                        marginBottom: '16px'
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: `${barWidth}%`,
+                          height: '100%',
+                          background: isRecommended ? '#059669' : '#6366f1',
+                          borderRadius: '999px',
+                          transition: 'width 250ms ease'
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <p className="builder-hint" style={{ marginTop: '20px' }}>
+              Recommendation: {workerAnalysisResult.recommendedWorkerCount}{' '}
+              {workerAnalysisResult.recommendedWorkerCount === 1 ? 'worker' : 'workers'}{' '}
+              achieve the minimum makespan of{' '}
+              {workerAnalysisResult.bestMakespan} time units. Additional
+              workers do not reduce completion time for this pipeline and
+              scheduling policy. Worker utilization may decrease as more
+              workers are added.
+            </p>
           </section>
         )}
 
@@ -1206,217 +1960,160 @@ function App() {
                 <div className="results-heading">
                   <div>
                     <span className="section-kicker">
-                      SCHEDULING ANALYSIS
+                      POLICY BENCHMARK
                     </span>
                     <h2>Policy Comparison Results</h2>
                     <p>
-                      Compare how each scheduling strategy handles
-                      the same pipeline.
+                      Compare the performance of all scheduling policies
+                      on the same pipeline.
                     </p>
                   </div>
+
+                  <span className="result-policy">
+                    {compareResult.comparisons.length} POLICIES
+                  </span>
                 </div>
 
-                <div className="stats results-metrics comparison-metrics">
-                  <div className="stat-card result-metric">
-                    <h3>Best Makespan</h3>
-                    <p>{compareResult.bestMakespan}</p>
-                    <small>Lowest total execution time</small>
+                <div className="section-heading schedule-heading">
+                  <div>
+                    <span className="section-kicker">
+                      PERFORMANCE BENCHMARK
+                    </span>
+                    <h3>Scheduling Policy Comparison</h3>
                   </div>
 
-                  <div className="stat-card result-metric">
-                    <h3>Best Policy</h3>
-                    <p className="policy-name-value">
-                      {compareResult.bestPolicies
-                        .map((name) =>
-                          name === 'CRITICAL_PATH'
+                  <span className="schedule-count">
+                    Best makespan: {bestMakespan} units
+                  </span>
+                </div>
+
+                <div className="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Policy</th>
+                        <th>Makespan</th>
+                        <th>Utilization</th>
+                        <th>Total Waiting</th>
+                        <th>Average Waiting</th>
+                        <th>Result</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {compareResult.comparisons.map((item) => (
+                        <tr
+                          key={item.policy}
+                          className={
+                            Number(item.makespan) === bestMakespan
+                              ? 'best-policy-row'
+                              : ''
+                          }
+                        >
+                          <td>
+                            {item.policy === 'CRITICAL_PATH'
+                              ? 'Critical Path'
+                              : item.policy}
+                          </td>
+                          <td
+                            className={
+                              Number(item.makespan) === bestMakespan
+                                ? 'best-metric-value'
+                                : ''
+                            }
+                          >
+                            {item.makespan}
+                          </td>
+                          <td>{item.workerUtilization}%</td>
+                          <td>{item.totalQueueWaitingTime}</td>
+                          <td>{item.averageQueueWaitingTime}</td>
+                          <td>
+                            {Number(item.makespan) === bestMakespan ? (
+                              <span className="best-policy-badge">
+                                BEST MAKESPAN
+                              </span>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <p className="builder-hint">
+                  Best makespan: {bestMakespan} time units.{' '}
+                  {bestPolicies.length > 1
+                    ? `The following policies share the best makespan: ${bestPolicies
+                        .map((item) =>
+                          item.policy === 'CRITICAL_PATH'
                             ? 'Critical Path'
-                            : name
+                            : item.policy
                         )
-                        .join(', ')}
-                    </p>
-                    <small>
-                      Includes all policies tied for best
-                    </small>
-                  </div>
+                        .join(', ')}.`
+                    : `The best-performing policy is ${bestPolicies[0].policy}.`}
+                </p>
 
-                  <div className="stat-card result-metric">
-                    <h3>Policies Compared</h3>
-                    <p>{compareResult.comparisons.length}</p>
-                    <small>
-                      Scheduling strategies benchmarked
-                    </small>
-                  </div>
-                </div>
-
-                <div
-                  className="comparison-tabs"
-                  role="tablist"
-                  aria-label="Comparison views"
-                >
+                <div className="comparison-view-controls">
                   <button
                     type="button"
-                    role="tab"
-                    aria-selected={comparisonView === 'table'}
                     className={
                       comparisonView === 'table' ? 'active' : ''
                     }
                     onClick={() => setComparisonView('table')}
                   >
-                    Policy Comparison
+                    Table View
                   </button>
 
                   <button
                     type="button"
-                    role="tab"
-                    aria-selected={comparisonView === 'timeline'}
                     className={
                       comparisonView === 'timeline' ? 'active' : ''
                     }
                     onClick={() => setComparisonView('timeline')}
+                    disabled={!bestTimeline}
                   >
                     Best Policy Timeline
                   </button>
                 </div>
 
-                {comparisonView === 'table' ? (
-                  <>
-                    <div className="section-heading schedule-heading">
-                      <div>
-                        <span className="section-kicker">
-                          POLICY BENCHMARK
-                        </span>
-                        <h3>Performance Comparison</h3>
-                      </div>
-
-                      <span className="best-result-note">
-                        BEST MAKESPAN HIGHLIGHTED
-                      </span>
-                    </div>
-
-                    <div className="table-wrapper">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Policy</th>
-                            <th>Makespan</th>
-                            <th>Worker Utilization</th>
-                            <th>Total Waiting</th>
-                            <th>Average Waiting</th>
-                          </tr>
-                        </thead>
-
-                        <tbody>
-                          {compareResult.comparisons.map((item) => {
-                            const isBest =
-                              Number(item.makespan) === bestMakespan;
-
-                            const displayPolicy =
-                              item.policy === 'CRITICAL_PATH'
-                                ? 'Critical Path'
-                                : item.policy;
-
-                            return (
-                              <tr
-                                key={item.policy}
-                                className={
-                                  isBest ? 'best-policy-row' : ''
-                                }
-                              >
-                                <td>
-                                  <span className="comparison-policy-name">
-                                    {displayPolicy}
-                                  </span>
-
-                                  {isBest && (
-                                    <span className="best-policy-badge">
-                                      BEST
-                                    </span>
-                                  )}
-                                </td>
-
-                                <td
-                                  className={
-                                    isBest ? 'best-metric-value' : ''
-                                  }
-                                >
-                                  {item.makespan}
-                                </td>
-
-                                <td>
-                                  {item.workerUtilization}%
-                                </td>
-                                <td>
-                                  {item.totalQueueWaitingTime}
-                                </td>
-                                <td>
-                                  {item.averageQueueWaitingTime}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                ) : bestTimeline ? (
-                  <div className="comparison-timeline-view">
-                    <div className="section-heading schedule-heading">
-                      <div>
-                        <span className="section-kicker">
-                          BEST PERFORMING SCHEDULE
-                        </span>
-                        <h3>
-                          {bestTimeline.policy === 'CRITICAL_PATH'
-                            ? 'Critical Path'
-                            : bestTimeline.policy}{' '}
-                          Timeline
-                        </h3>
-                      </div>
-
-                      <span className="best-policy-badge">
-                        BEST · {bestTimeline.makespan} UNITS
-                      </span>
-                    </div>
-
-                    <Timeline
-                      schedule={bestTimeline.schedule}
-                      workerCount={workerCount}
-                      makespan={bestTimeline.makespan}
-                    />
-                  </div>
-                ) : (
-                  <div className="timeline-unavailable">
-                    <h3>
-                      Timeline data is not available for this comparison
-                    </h3>
-                    <p>
-                      The comparison endpoint returned performance
-                      metrics without individual job schedules.
-                      Run a single simulation to view its Gantt timeline.
-                    </p>
-                  </div>
+                {comparisonView === 'timeline' && bestTimeline && (
+                  <Timeline
+                    schedule={bestTimeline.schedule}
+                    workerCount={workerCount}
+                    makespan={bestTimeline.makespan}
+                  />
                 )}
               </section>
             );
           })()}
 
         {showHistory && (
-          <section className="content-card results" id="history">
-            <h2>Previous Simulations</h2>
+          <section className="content-card results-panel">
+            <div className="results-heading">
+              <div>
+                <span className="section-kicker">
+                  SAVED EXECUTIONS
+                </span>
+                <h2>Simulation History</h2>
+                <p>
+                  Review your recent pipeline simulations and comparisons.
+                </p>
+              </div>
+            </div>
 
-            {historyLoading && (
-              <p>Loading simulation history...</p>
-            )}
+            {historyLoading && <p>Loading history...</p>}
 
             {historyError && (
-              <p className="error-message">{historyError}</p>
+              <p className="error-message" role="alert">
+                {historyError}
+              </p>
             )}
 
-            {!historyLoading &&
-              !historyError &&
-              history.length === 0 && (
-                <p>No simulation history found yet.</p>
-              )}
+            {!historyLoading && !historyError && history.length === 0 && (
+              <p>No saved simulations found.</p>
+            )}
 
             {!historyLoading && history.length > 0 && (
               <div className="table-wrapper">
@@ -1424,91 +2121,36 @@ function App() {
                   <thead>
                     <tr>
                       <th>Date</th>
-                      <th>Policy</th>
+                      <th>Jobs</th>
                       <th>Workers</th>
+                      <th>Policy</th>
                       <th>Makespan</th>
-                      <th>Utilization</th>
-                      <th>Total Waiting</th>
                     </tr>
                   </thead>
 
                   <tbody>
-                    {history.map((item) => {
-                      const storedResult = item.result || item;
-
-                      const comparisons = Array.isArray(
-                        storedResult.comparisons
-                      )
-                        ? storedResult.comparisons
-                        : [];
-
-                      const isComparison =
-                        item.policy === 'COMPARISON' ||
-                        comparisons.length > 0;
-
-                      const bestComparison = comparisons.reduce(
-                        (best, current) => {
-                          if (!best) return current;
-
-                          return Number(current.makespan) <
-                            Number(best.makespan)
-                            ? current
-                            : best;
-                        },
-                        null
-                      );
-
-                      const metrics = isComparison
-                        ? bestComparison || {}
-                        : storedResult;
-
-                      const makespan = isComparison
-                        ? storedResult.bestMakespan ??
-                          bestComparison?.makespan
-                        : metrics.makespan;
-
-                      return (
-                        <tr key={item._id}>
-                          <td>
-                            {item.createdAt
-                              ? new Date(
-                                  item.createdAt
-                                ).toLocaleString()
-                              : '—'}
-                          </td>
-
-                          <td>{item.policy || '—'}</td>
-                          <td>{item.workerCount ?? '—'}</td>
-                          <td>{makespan ?? '—'}</td>
-
-                          <td>
-                            {metrics.workerUtilization != null
-                              ? `${metrics.workerUtilization}%`
-                              : '—'}
-                          </td>
-
-                          <td>
-                            {metrics.totalQueueWaitingTime ?? '—'}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {history.map((item) => (
+                      <tr key={item._id}>
+                        <td>
+                          {item.createdAt
+                            ? new Date(item.createdAt).toLocaleString()
+                            : '—'}
+                        </td>
+                        <td>{item.jobs?.length ?? '—'}</td>
+                        <td>{item.workerCount ?? '—'}</td>
+                        <td>{item.policy ?? '—'}</td>
+                        <td>
+                          {item.result?.makespan ??
+                            item.result?.bestMakespan ??
+                            item.result?.recommendation?.makespan ??
+                            '—'}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
             )}
-          </section>
-        )}
-
-        {!showHistory && (
-          <section className="content-card">
-            <h2>Scheduling Strategies</h2>
-
-            <div className="policies">
-              <div>FIFO</div>
-              <div>SJF</div>
-              <div>Critical Path</div>
-            </div>
           </section>
         )}
       </main>

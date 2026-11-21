@@ -3,6 +3,7 @@ require("dotenv").config();
 
 const express = require("express");
 const { simulate } = require("./scheduler");
+const { analyzeCriticalPath } = require("./criticalPath");
 const connectDB = require("./db");
 const Simulation = require("./models/Simulation");
 
@@ -45,7 +46,7 @@ app.post("/api/simulate", async (req, res) => {
     }
 });
 
-// Compare policies and save the comparison
+// Compare all scheduling policies and save the comparison
 app.post("/api/compare", async (req, res) => {
     try {
         const { jobs, workerCount } = req.body;
@@ -96,6 +97,177 @@ app.post("/api/compare", async (req, res) => {
     }
 });
 
+// Intelligently recommend the best scheduling policy
+app.post("/api/recommend-policy", async (req, res) => {
+    try {
+        const { jobs, workerCount } = req.body;
+
+        const policies = ["FIFO", "SJF", "CRITICAL_PATH"];
+
+        // Run the same pipeline under every scheduling policy.
+        const comparisons = policies.map((policy) => {
+            const result = simulate(jobs, workerCount, policy);
+
+            return {
+                policy,
+                makespan: result.makespan,
+                workerUtilization: result.workerUtilization,
+                totalQueueWaitingTime: result.totalQueueWaitingTime,
+                averageQueueWaitingTime: result.averageQueueWaitingTime
+            };
+        });
+
+        // Sort by makespan, then total queue waiting time.
+        // Original policy order provides a deterministic final tie-breaker.
+        const rankedResults = [...comparisons].sort((a, b) => {
+            if (a.makespan !== b.makespan) {
+                return a.makespan - b.makespan;
+            }
+
+            return (
+                a.totalQueueWaitingTime -
+                b.totalQueueWaitingTime
+            );
+        });
+
+        const recommendation = rankedResults[0];
+
+        const bestMakespan = recommendation.makespan;
+
+        const bestPolicies = comparisons
+            .filter(result => result.makespan === bestMakespan)
+            .map(result => result.policy);
+
+        let reason;
+
+        if (bestPolicies.length === 1) {
+            reason =
+                `${recommendation.policy} achieves the lowest makespan ` +
+                `of ${recommendation.makespan} time units.`;
+        } else {
+            reason =
+                `${recommendation.policy} achieves the lowest makespan ` +
+                `of ${recommendation.makespan} time units and has the ` +
+                `lowest total queue waiting time among the tied policies.`;
+        }
+
+        const recommendationResult = {
+            comparisons,
+            recommendation,
+            bestMakespan,
+            bestPolicies,
+            reason
+        };
+
+        // Save the recommendation analysis in simulation history.
+        await Simulation.create({
+            jobs,
+            workerCount,
+            policy: "COMPARISON",
+            result: recommendationResult
+        });
+
+        res.json({
+            success: true,
+            ...recommendationResult
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Analyze performance with different worker counts
+app.post("/api/worker-analysis", (req, res) => {
+    try {
+        const {
+            jobs,
+            workerCounts = [1, 2, 3, 4, 5],
+            policy = "FIFO"
+        } = req.body;
+
+        if (!Array.isArray(workerCounts) || workerCounts.length === 0) {
+            throw new Error("Worker counts must be a non-empty array.");
+        }
+
+        if (
+            workerCounts.some(
+                count =>
+                    !Number.isInteger(count) ||
+                    count <= 0 ||
+                    count > 20
+            )
+        ) {
+            throw new Error(
+                "Each worker count must be a positive integer between 1 and 20."
+            );
+        }
+
+        if (new Set(workerCounts).size !== workerCounts.length) {
+            throw new Error("Worker counts must not contain duplicates.");
+        }
+
+        const results = workerCounts.map((workerCount) => {
+            const result = simulate(jobs, workerCount, policy);
+
+            return {
+                workerCount,
+                makespan: result.makespan,
+                workerUtilization: result.workerUtilization,
+                totalQueueWaitingTime: result.totalQueueWaitingTime,
+                averageQueueWaitingTime: result.averageQueueWaitingTime
+            };
+        });
+
+        const bestMakespan = Math.min(
+            ...results.map(result => result.makespan)
+        );
+
+        const bestWorkerCounts = results
+            .filter(result => result.makespan === bestMakespan)
+            .map(result => result.workerCount);
+
+        const recommendedWorkerCount = Math.min(
+            ...bestWorkerCounts
+        );
+
+        res.json({
+            success: true,
+            policy,
+            results,
+            bestMakespan,
+            bestWorkerCounts,
+            recommendedWorkerCount
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Analyze the Critical Path using CPM
+app.post("/api/critical-path", (req, res) => {
+    try {
+        const { jobs } = req.body;
+
+        const result = analyzeCriticalPath(jobs);
+
+        res.json({
+            success: true,
+            ...result
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
 // Retrieve the latest 20 saved simulations
 app.get("/api/history", async (req, res) => {
     try {
@@ -128,7 +300,7 @@ async function startServer() {
             );
         });
     } catch (error) {
-        console.error("❌ Failed to start DevFlow:", error.message);
+        console.error("Failed to start DevFlow server:", error.message);
         process.exit(1);
     }
 }

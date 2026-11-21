@@ -1057,24 +1057,28 @@ a:focus-visible {
   margin: 0;
 }
 
+/* Close Form & Reset Button */
+.form-footer-actions button,
 .simulation-form button.close-form-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   margin: 0;
   padding: 11px 19px;
-  color: #c7d2fe;
-  background: #252b50;
-  border: 1px solid #6366f1;
+  color: #ffffff;
+  background: #6366f1;
+  border: 1px solid #818cf8;
   border-radius: 9px;
   font-size: 13px;
   font-weight: 650;
   box-shadow: none;
+  transition: 0.2s ease;
 }
 
+.form-footer-actions button:hover,
 .simulation-form button.close-form-button:hover {
-  background: #373b78;
-  border-color: #818cf8;
+  background: #4f46e5;
+  border-color: #a5b4fc;
   color: #ffffff;
   transform: translateY(-1px);
 }
@@ -1095,6 +1099,7 @@ a:focus-visible {
     align-items: stretch;
   }
 
+  .form-footer-actions button,
   .simulation-form button.close-form-button {
     width: 100%;
   }
