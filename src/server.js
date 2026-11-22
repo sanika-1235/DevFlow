@@ -4,6 +4,7 @@ require("dotenv").config();
 const express = require("express");
 const { simulate } = require("./scheduler");
 const { analyzeCriticalPath } = require("./criticalPath");
+const { predictMakespan } = require("./prediction");
 const connectDB = require("./db");
 const Simulation = require("./models/Simulation");
 
@@ -104,7 +105,6 @@ app.post("/api/recommend-policy", async (req, res) => {
 
         const policies = ["FIFO", "SJF", "CRITICAL_PATH"];
 
-        // Run the same pipeline under every scheduling policy.
         const comparisons = policies.map((policy) => {
             const result = simulate(jobs, workerCount, policy);
 
@@ -117,8 +117,6 @@ app.post("/api/recommend-policy", async (req, res) => {
             };
         });
 
-        // Sort by makespan, then total queue waiting time.
-        // Original policy order provides a deterministic final tie-breaker.
         const rankedResults = [...comparisons].sort((a, b) => {
             if (a.makespan !== b.makespan) {
                 return a.makespan - b.makespan;
@@ -131,7 +129,6 @@ app.post("/api/recommend-policy", async (req, res) => {
         });
 
         const recommendation = rankedResults[0];
-
         const bestMakespan = recommendation.makespan;
 
         const bestPolicies = comparisons
@@ -159,7 +156,6 @@ app.post("/api/recommend-policy", async (req, res) => {
             reason
         };
 
-        // Save the recommendation analysis in simulation history.
         await Simulation.create({
             jobs,
             workerCount,
@@ -253,13 +249,47 @@ app.post("/api/worker-analysis", (req, res) => {
 app.post("/api/critical-path", (req, res) => {
     try {
         const { jobs } = req.body;
-
         const result = analyzeCriticalPath(jobs);
 
         res.json({
             success: true,
             ...result
         });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Predict makespan using historical simulation records
+app.post("/api/predict-makespan", async (req, res) => {
+    try {
+        const {
+            jobs,
+            workerCount,
+            policy = "FIFO"
+        } = req.body;
+
+        // Retrieve recent individual simulation records.
+        const historicalRecords = await Simulation.find({
+            policy,
+            workerCount
+        })
+            .sort({ createdAt: -1 })
+            .limit(20)
+            .lean();
+
+        // Generate a prediction using the historical records.
+        const prediction = predictMakespan(
+            jobs,
+            workerCount,
+            policy,
+            historicalRecords
+        );
+
+        res.json(prediction);
     } catch (error) {
         res.status(400).json({
             success: false,

@@ -199,6 +199,8 @@ function App() {
   const [criticalPathResult, setCriticalPathResult] = useState(null);
   const [workerAnalysisResult, setWorkerAnalysisResult] = useState(null);
   const [policyRecommendation, setPolicyRecommendation] = useState(null);
+  const [historicalPrediction, setHistoricalPrediction] = useState(null);
+
   const [comparisonView, setComparisonView] = useState('table');
   const [resultsView, setResultsView] = useState('simulation');
 
@@ -218,6 +220,7 @@ function App() {
   const [criticalPathLoading, setCriticalPathLoading] = useState(false);
   const [workerAnalysisLoading, setWorkerAnalysisLoading] = useState(false);
   const [recommendationLoading, setRecommendationLoading] = useState(false);
+  const [predictionLoading, setPredictionLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
 
   const simulationInProgress = useRef(false);
@@ -225,6 +228,7 @@ function App() {
   const criticalPathInProgress = useRef(false);
   const workerAnalysisInProgress = useRef(false);
   const recommendationInProgress = useRef(false);
+  const predictionInProgress = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -253,6 +257,7 @@ function App() {
     setCriticalPathResult(null);
     setWorkerAnalysisResult(null);
     setPolicyRecommendation(null);
+    setHistoricalPrediction(null);
     setResultsView('simulation');
     setComparisonView('table');
     setError('');
@@ -297,7 +302,8 @@ function App() {
       comparisonInProgress.current ||
       criticalPathInProgress.current ||
       workerAnalysisInProgress.current ||
-      recommendationInProgress.current
+      recommendationInProgress.current ||
+      predictionInProgress.current
     ) {
       showNotice(
         'Please wait until the current operation finishes before closing the form.'
@@ -492,7 +498,8 @@ function App() {
     if (
       criticalPathInProgress.current ||
       workerAnalysisInProgress.current ||
-      recommendationInProgress.current
+      recommendationInProgress.current ||
+      predictionInProgress.current
     ) {
       showNotice(
         'Another analysis is already running. Please wait!'
@@ -586,7 +593,8 @@ function App() {
     if (
       criticalPathInProgress.current ||
       workerAnalysisInProgress.current ||
-      recommendationInProgress.current
+      recommendationInProgress.current ||
+      predictionInProgress.current
     ) {
       showNotice(
         'Another analysis is already running. Please wait!'
@@ -673,7 +681,8 @@ function App() {
       simulationInProgress.current ||
       comparisonInProgress.current ||
       workerAnalysisInProgress.current ||
-      recommendationInProgress.current
+      recommendationInProgress.current ||
+      predictionInProgress.current
     ) {
       showNotice(
         'Please wait until the current operation finishes before analyzing the Critical Path.'
@@ -736,7 +745,8 @@ function App() {
       simulationInProgress.current ||
       comparisonInProgress.current ||
       criticalPathInProgress.current ||
-      recommendationInProgress.current
+      recommendationInProgress.current ||
+      predictionInProgress.current
     ) {
       showNotice(
         'Please wait until the current operation finishes before analyzing worker counts.'
@@ -801,7 +811,8 @@ function App() {
       simulationInProgress.current ||
       comparisonInProgress.current ||
       criticalPathInProgress.current ||
-      workerAnalysisInProgress.current
+      workerAnalysisInProgress.current ||
+      predictionInProgress.current
     ) {
       showNotice(
         'Please wait until the current operation finishes before requesting a recommendation.'
@@ -854,6 +865,75 @@ function App() {
     }
   }
 
+  // Predict execution time using similar historical simulations.
+  async function predictExecutionTime() {
+    if (predictionInProgress.current) {
+      showNotice('Execution-time prediction is already running. Please wait!');
+      return;
+    }
+
+    if (
+      simulationInProgress.current ||
+      comparisonInProgress.current ||
+      criticalPathInProgress.current ||
+      workerAnalysisInProgress.current ||
+      recommendationInProgress.current
+    ) {
+      showNotice(
+        'Please wait until the current operation finishes before requesting a prediction.'
+      );
+      return;
+    }
+
+    setError('');
+
+    let jobs;
+
+    try {
+      jobs = getJobsForRequest();
+    } catch (err) {
+      setError(
+        inputMode === 'json'
+          ? `Invalid jobs JSON: ${err.message}`
+          : err.message
+      );
+      return;
+    }
+
+    predictionInProgress.current = true;
+    setPredictionLoading(true);
+    setHistoricalPrediction(null);
+
+    try {
+      const response = await fetch('/api/predict-makespan', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          jobs,
+          workerCount: Number(workerCount),
+          policy
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(
+          data.error || 'Execution-time prediction failed.'
+        );
+      }
+
+      setHistoricalPrediction(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      predictionInProgress.current = false;
+      setPredictionLoading(false);
+    }
+  }
+
   async function fetchHistory() {
     setShowHistory(true);
     setShowForm(false);
@@ -893,7 +973,8 @@ function App() {
       comparisonInProgress.current ||
       criticalPathInProgress.current ||
       workerAnalysisInProgress.current ||
-      recommendationInProgress.current
+      recommendationInProgress.current ||
+      predictionInProgress.current
     ) {
       showNotice(
         'Please wait until the current operation finishes before starting a new simulation.'
@@ -1235,6 +1316,17 @@ function App() {
                     ? 'Analyzing Workers...'
                     : 'Analyze Worker Counts'}
                 </button>
+
+                <button
+                  type="button"
+                  onClick={predictExecutionTime}
+                  aria-busy={predictionLoading}
+                  disabled={predictionLoading}
+                >
+                  {predictionLoading
+                    ? 'Predicting...'
+                    : 'Predict Execution Time'}
+                </button>
               </div>
             </form>
 
@@ -1275,6 +1367,173 @@ function App() {
                 Close Form & Reset
               </button>
             </div>
+          </section>
+        )}
+
+        {historicalPrediction && !showHistory && (
+          <section className="content-card results results-panel">
+            <div className="results-heading">
+              <div>
+                <span className="section-kicker">
+                  HISTORICAL PERFORMANCE ANALYSIS
+                </span>
+                <h2>Execution-Time Prediction</h2>
+                <p>
+                  Estimate pipeline completion time using similar
+                  historical executions.
+                </p>
+              </div>
+
+              <span className="result-policy">
+                {historicalPrediction.confidence?.replace('_', ' ')}
+              </span>
+            </div>
+
+            {historicalPrediction.predictionAvailable ? (
+              <>
+                <div className="stats results-metrics">
+                  <div className="stat-card result-metric metric-makespan">
+                    <span className="metric-label">
+                      PREDICTED EXECUTION TIME
+                    </span>
+                    <h3>Predicted Makespan</h3>
+                    <p>
+                      {historicalPrediction.predictedMakespan}
+                      <span> units</span>
+                    </p>
+                    <small>
+                      Estimated completion time from historical runs
+                    </small>
+                  </div>
+
+                  <div className="stat-card result-metric metric-utilization">
+                    <span className="metric-label">
+                      PREDICTION CONFIDENCE
+                    </span>
+                    <h3>Confidence Level</h3>
+                    <p>{historicalPrediction.confidence}</p>
+                    <small>
+                      Based on the number and similarity of matching records
+                    </small>
+                  </div>
+
+                  <div className="stat-card result-metric metric-waiting">
+                    <span className="metric-label">
+                      HISTORICAL MATCHES
+                    </span>
+                    <h3>Matching Executions</h3>
+                    <p>{historicalPrediction.matchedRecords}</p>
+                    <small>
+                      Similar past executions used for this estimate
+                    </small>
+                  </div>
+                </div>
+
+                <div className="stats results-metrics">
+                  <div className="stat-card result-metric">
+                    <span className="metric-label">
+                      AVERAGE SIMILARITY
+                    </span>
+                    <h3>Pipeline Similarity</h3>
+                    <p>
+                      {historicalPrediction.averageSimilarity}
+                      <span>%</span>
+                    </p>
+                    <small>
+                      Average similarity of selected historical records
+                    </small>
+                  </div>
+
+                  <div className="stat-card result-metric">
+                    <span className="metric-label">
+                      SCHEDULING POLICY
+                    </span>
+                    <h3>Policy Used</h3>
+                    <p>
+                      {historicalPrediction.policy === 'CRITICAL_PATH'
+                        ? 'Critical Path'
+                        : historicalPrediction.policy}
+                    </p>
+                    <small>
+                      Historical records use the same scheduling policy
+                    </small>
+                  </div>
+
+                  <div className="stat-card result-metric">
+                    <span className="metric-label">
+                      WORKER CONFIGURATION
+                    </span>
+                    <h3>Workers Used</h3>
+                    <p>{historicalPrediction.workerCount}</p>
+                    <small>
+                      Historical records use the same worker count
+                    </small>
+                  </div>
+                </div>
+
+                <div className="section-heading schedule-heading">
+                  <div>
+                    <span className="section-kicker">
+                      HISTORICAL DATA
+                    </span>
+                    <h3>Matching Execution Records</h3>
+                  </div>
+
+                  <span className="schedule-count">
+                    {historicalPrediction.matches?.length ?? 0} records
+                  </span>
+                </div>
+
+                <div className="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Record</th>
+                        <th>Historical Makespan</th>
+                        <th>Similarity</th>
+                        <th>Execution Date</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {historicalPrediction.matches?.map((match, index) => (
+                        <tr key={`${match.createdAt ?? 'record'}-${index}`}>
+                          <td>Execution {index + 1}</td>
+                          <td>{match.makespan} units</td>
+                          <td>
+                            {(match.similarity * 100).toFixed(2)}%
+                          </td>
+                          <td>
+                            {match.createdAt
+                              ? new Date(match.createdAt).toLocaleString()
+                              : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <p className="builder-hint" style={{ marginTop: '20px' }}>
+                  <strong>How was this predicted?</strong>{' '}
+                  {historicalPrediction.reason} The prediction is a
+                  similarity-weighted estimate based on historical
+                  executions, not a guarantee of future execution time.
+                </p>
+              </>
+            ) : (
+              <div style={{ marginTop: '20px' }}>
+                <h3>Not enough historical data yet</h3>
+                <p className="builder-hint">
+                  {historicalPrediction.reason}
+                </p>
+                <p className="builder-hint">
+                  Run more simulations using this scheduling policy and
+                  worker count. As DevFlow collects similar executions,
+                  it can generate more useful estimates.
+                </p>
+              </div>
+            )}
           </section>
         )}
 
